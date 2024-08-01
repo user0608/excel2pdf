@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/sfperusacdev/excel2pdf"
+	"github.com/user0608/excel2pdf"
 )
 
 var excelPath = `file.xlsx`
