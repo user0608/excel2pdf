@@ -29,6 +29,9 @@ func readLibreofficePath(names ...string) (string, error) {
 	var keyPath = filepath.Join(append([]string{prefix}, names...)...)
 	key, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.READ)
 	if err != nil {
+		if err == registry.ErrNotExist {
+			return "", nil
+		}
 		slog.Error(`opening registry.LOCAL_MACHINE`, "erorr", err, "key_path", keyPath)
 		return "", err
 	}
