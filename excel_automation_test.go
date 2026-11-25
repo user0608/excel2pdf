@@ -91,8 +91,9 @@ func TestExportExcelPDF(t *testing.T) {
 			t.Parallel()
 			state := &fakeExcelState{failures: tt.failures, panicAt: tt.panicAt, panicValue: tt.panicValue}
 			err := exportExcelPDF(context.Background(), &fakeExcelObject{name: "excel", state: state}, "input.xlsx", "output.pdf")
-			if !reflect.DeepEqual(state.events, tt.wantEvents) {
-				t.Errorf("events = %v, want %v", state.events, tt.wantEvents)
+			wantEvents := append(excelSecurityTestEvents(), tt.wantEvents...)
+			if !reflect.DeepEqual(state.events, wantEvents) {
+				t.Errorf("events = %v, want %v", state.events, wantEvents)
 			}
 			if len(tt.wantErrors) == 0 && !tt.wantPanic && err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -105,7 +106,7 @@ func TestExportExcelPDF(t *testing.T) {
 			if tt.wantPanic && (err == nil || !strings.Contains(err.Error(), "excel automation panic")) {
 				t.Errorf("panic did not produce an explicit error: %v", err)
 			}
-			if got := state.args["workbooks.Open"]; got != nil && !reflect.DeepEqual(got, []any{"input.xlsx"}) {
+			if got := state.args["workbooks.Open"]; got != nil && !reflect.DeepEqual(got, []any{"input.xlsx", 0, true}) {
 				t.Errorf("Open args = %v", got)
 			}
 			if got := state.args["workbook.ExportAsFixedFormat"]; got != nil && !reflect.DeepEqual(got, []any{0, "output.pdf"}) {
@@ -152,10 +153,75 @@ func TestExportExcelPDFCancellation(t *testing.T) {
 			if !errors.Is(err, context.Canceled) {
 				t.Errorf("error = %v, want context.Canceled", err)
 			}
-			if !reflect.DeepEqual(state.events, tt.wantEvents) {
-				t.Errorf("events = %v, want %v", state.events, tt.wantEvents)
+			wantEvents := tt.wantEvents
+			if tt.cancelAt != "" {
+				wantEvents = append(excelSecurityTestEvents(), wantEvents...)
+			}
+			if !reflect.DeepEqual(state.events, wantEvents) {
+				t.Errorf("events = %v, want %v", state.events, wantEvents)
 			}
 		})
+	}
+}
+
+func TestExportExcelPDFSecurityPolicy(t *testing.T) {
+	t.Parallel()
+	state := &fakeExcelState{}
+	if err := exportExcelPDF(context.Background(), &fakeExcelObject{name: "excel", state: state}, "input.xlsx", "output.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]any{
+		"AutomationSecurity": 3,
+		"EnableEvents":       false,
+		"AskToUpdateLinks":   false,
+		"DisplayAlerts":      false,
+		"Visible":            false,
+	} {
+		if got := state.args["excel.set."+name]; !reflect.DeepEqual(got, []any{want}) {
+			t.Errorf("Excel %s = %v, want %v", name, got, want)
+		}
+	}
+	if len(state.events) < 6 {
+		t.Fatalf("incomplete security/open sequence: %v", state.events)
+	}
+	if !reflect.DeepEqual(state.events[:5], excelSecurityTestEvents()) || state.events[5] != "excel.Workbooks" {
+		t.Errorf("security policy was not applied before accessing workbooks: %v", state.events)
+	}
+	if got := state.args["workbooks.Open"]; !reflect.DeepEqual(got, []any{"input.xlsx", 0, true}) {
+		t.Errorf("Open did not disable updates and enable read-only mode: %v", got)
+	}
+}
+
+func TestExportExcelPDFFailsClosedOnSecurityConfiguration(t *testing.T) {
+	t.Parallel()
+	policyErr := errors.New("policy unavailable")
+	for index, event := range excelSecurityTestEvents() {
+		for _, mode := range []string{"error", "cancel", "panic"} {
+			t.Run(event+"/"+mode, func(t *testing.T) {
+				t.Parallel()
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				state := &fakeExcelState{}
+				wantErr := policyErr
+				switch mode {
+				case "error":
+					state.failures = map[string]error{event: policyErr}
+				case "cancel":
+					state.after = map[string]func(){event: cancel}
+					wantErr = context.Canceled
+				case "panic":
+					state.panicAt, state.panicValue = event, policyErr
+				}
+				err := exportExcelPDF(ctx, &fakeExcelObject{name: "excel", state: state}, "input.xlsx", "output.pdf")
+				if !errors.Is(err, wantErr) {
+					t.Errorf("error = %v, want %v", err, wantErr)
+				}
+				wantEvents := append(excelSecurityTestEvents()[:index+1], "excel.Quit")
+				if !reflect.DeepEqual(state.events, wantEvents) {
+					t.Errorf("workbook accessed after failed security configuration: events %v, want %v", state.events, wantEvents)
+				}
+			})
+		}
 	}
 }
 
@@ -202,6 +268,17 @@ func (object *fakeExcelObject) getObject(name string, args ...any) (excelAutomat
 
 func (object *fakeExcelObject) call(name string, args ...any) error {
 	return object.record(name, args...)
+}
+
+func (object *fakeExcelObject) setProperty(name string, value any) error {
+	return object.record("set."+name, value)
+}
+
+func excelSecurityTestEvents() []string {
+	return []string{
+		"excel.set.AutomationSecurity", "excel.set.EnableEvents",
+		"excel.set.AskToUpdateLinks", "excel.set.DisplayAlerts", "excel.set.Visible",
+	}
 }
 
 func (object *fakeExcelObject) release() error {

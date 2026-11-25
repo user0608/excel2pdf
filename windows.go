@@ -81,6 +81,14 @@ func (object *comExcelObject) getObject(name string, args ...any) (excelAutomati
 	return &comExcelObject{dispatch: dispatch, owner: value}, nil
 }
 
+func (object *comExcelObject) setProperty(name string, value any) error {
+	result, err := oleutil.PutProperty(object.dispatch, name, value)
+	if result != nil {
+		addExcelCleanupError(&err, "clear COM property result", result.Clear())
+	}
+	return err
+}
+
 func (object *comExcelObject) call(name string, args ...any) error {
 	value, err := oleutil.CallMethod(object.dispatch, name, args...)
 	if value != nil {

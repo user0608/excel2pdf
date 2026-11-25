@@ -114,3 +114,48 @@ process causes `ErrExcel2PdfIsProcessing`. A nil context is rejected with an err
 When cancellation is observed, the function returns no PDF path and attempts to
 remove its temporary files, even if the backend produced a PDF. Context errors
 remain inspectable with `errors.Is`, alongside any backend or cleanup errors.
+
+## Document security and deployment
+
+Before accessing Excel workbooks, the package sets all of these application
+properties on the new Excel instance:
+
+- `AutomationSecurity = 3` (`msoAutomationSecurityForceDisable`) to disable VBA
+  macros in documents opened programmatically.
+- `EnableEvents = false`, `AskToUpdateLinks = false`, `DisplayAlerts = false`, and
+  `Visible = false` to reduce event execution and interactive prompts.
+
+If any property cannot be applied, the conversion fails **before opening the
+document** and attempts to quit Excel. Workbooks are opened with `UpdateLinks = 0`
+and `ReadOnly = true`, then closed without saving. Macros and link-dependent
+calculations are intentionally not refreshed, so output may differ from an
+interactive session that executes document code or updates external values.
+
+These controls have important limits:
+
+- `AutomationSecurity` does **not** disable Excel 4.0/XLM macros. Excel security
+  policies, Protected View, password protection, add-ins, or security warnings may
+  still block opening or require interaction. The package does not lower Trust
+  Center settings or bypass Protected View, and has no password-opening API.
+- `UpdateLinks = 0` is not a network sandbox. External data connections, embedded
+  objects, parser vulnerabilities, and engine-specific behavior are not fully
+  controlled by these properties. A fresh LibreOffice profile is also **not a
+  sandbox** or a guarantee that every kind of active content is disabled.
+- Microsoft does not recommend or support unattended server-side Office
+  automation in typical service scenarios. Excel may require an initialized user
+  profile and an interactive desktop, and can still hang on a COM operation.
+  Validate the deployment on a dedicated Windows worker; do not assume that a
+  web-service or SYSTEM account can safely run Excel without interaction.
+
+For documents from third parties, use a dedicated unprivileged account and an
+isolated worker/container/VM with no secrets, restricted filesystem access, and
+network access denied unless explicitly required. Enforce file-size, CPU, memory,
+and execution limits outside this package, and keep Office and LibreOffice
+patched. Strict interruption of Excel still requires a separate worker process.
+
+LibreOffice diagnostics redact the known input/output/profile paths and their
+file-URI forms, and strip line breaks and terminal control characters. This is
+**best-effort redaction**, not a guarantee against sensitive content: other paths,
+document-derived text, and underlying inspectable errors may still contain private
+data. Do not send raw errors to end users or public logs; translate them to safe
+application messages and apply your own logging/redaction policy.

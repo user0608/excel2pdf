@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func convertExcelToPDFWithLibreOffice(ctx context.Context, excelFilePath, pdfFilePath string) error {
@@ -64,12 +65,49 @@ func runLibreOfficeConversion(ctx context.Context, binaryPath, inputPath, output
 		err = validateGeneratedPDF(outputPath)
 	}
 	if err != nil {
-		if diagnostic := strings.TrimSpace(output.String()); diagnostic != "" {
+		if diagnostic := sanitizeLibreOfficeDiagnostic(output.String(), inputPath, outputPath, profileDir); diagnostic != "" {
 			return fmt.Errorf("run LibreOffice: %w (output: %s)", err, diagnostic)
 		}
 		return fmt.Errorf("run LibreOffice: %w", err)
 	}
 	return nil
+}
+
+func sanitizeLibreOfficeDiagnostic(text, inputPath, outputPath, profileDir string) string {
+	for _, target := range []struct {
+		path  string
+		label string
+	}{
+		{inputPath, "[input]"},
+		{outputPath, "[output]"},
+		{profileDir, "[profile]"},
+		{filepath.Dir(outputPath), "[temporary-directory]"},
+	} {
+		if target.path == "" {
+			continue
+		}
+		if uri, err := libreOfficeProfileURI(target.path); err == nil {
+			text = strings.ReplaceAll(text, uri, target.label)
+		}
+		text = strings.ReplaceAll(text, filepath.ToSlash(target.path), target.label)
+		text = strings.ReplaceAll(text, target.path, target.label)
+	}
+	// Keep backend output on one line and remove terminal control characters.
+	text = strings.Map(func(character rune) rune {
+		switch character {
+		case '\r', '\n', '\t':
+			return ' '
+		}
+		if unicode.IsControl(character) {
+			return -1
+		}
+		return character
+	}, text)
+	text = strings.TrimSpace(text)
+	if len(text) > libreOfficeOutputLimit {
+		text = text[:libreOfficeOutputLimit] + " [LibreOffice output truncated]"
+	}
+	return text
 }
 
 func libreOfficeProfileURI(path string) (string, error) {

@@ -70,6 +70,14 @@ func TestRunLibreOfficeConversion(t *testing.T) {
 					}
 				}
 			}
+			if tt.mode == "fail" {
+				if strings.Contains(err.Error(), input) || strings.Contains(err.Error(), profilePath) {
+					t.Errorf("process diagnostics exposed known paths: %v", err)
+				}
+				if !strings.Contains(err.Error(), "[input]") || !strings.Contains(err.Error(), "[profile]") {
+					t.Errorf("process diagnostics were not sanitized: %v", err)
+				}
+			}
 			if tt.mode == "fail" || tt.mode == "large" {
 				var exitErr *exec.ExitError
 				if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 {
@@ -226,6 +234,38 @@ func TestLibreOfficeOutput(t *testing.T) {
 	}
 }
 
+func TestSanitizeLibreOfficeDiagnostic(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "private data ñ # %")
+	input := filepath.Join(dir, "private.xlsx")
+	output := filepath.Join(dir, "conversion", "private.pdf")
+	profile := filepath.Join(dir, "conversion", ".profile")
+	profileURI, err := libreOfficeProfileURI(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputURI, err := libreOfficeProfileURI(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := "convert " + input + " and " + inputURI + "\noutput " + output + "\rprofile " + profileURI + "\t" + profile + " directory " + filepath.Dir(output) + "\x1b\x00"
+	diagnostic := sanitizeLibreOfficeDiagnostic(raw, input, output, profile)
+	for _, sensitive := range []string{input, output, profile, profileURI, inputURI, filepath.Dir(output), "\n", "\r", "\t", "\x1b", "\x00"} {
+		if strings.Contains(diagnostic, sensitive) {
+			t.Errorf("diagnostic retained sensitive path or control %q: %q", sensitive, diagnostic)
+		}
+	}
+	for _, useful := range []string{"convert", "[input]", "[output]", "[profile]", "[temporary-directory]"} {
+		if !strings.Contains(diagnostic, useful) {
+			t.Errorf("diagnostic omitted %q: %q", useful, diagnostic)
+		}
+	}
+	large := sanitizeLibreOfficeDiagnostic(strings.Repeat("x", libreOfficeOutputLimit*2), input, output, profile)
+	if len(large) > libreOfficeOutputLimit+64 || !strings.Contains(large, "output truncated") {
+		t.Errorf("sanitized diagnostics are unbounded: %d bytes", len(large))
+	}
+}
+
 func libreOfficeHelperCommand(t *testing.T, mode string, profilePath *string) func(context.Context, string, ...string) *exec.Cmd {
 	t.Helper()
 	return func(ctx context.Context, binary string, args ...string) *exec.Cmd {
@@ -292,6 +332,7 @@ func TestLibreOfficeHelperProcess(t *testing.T) {
 	}
 	fmt.Fprintln(os.Stdout, "helper stdout")
 	fmt.Fprintln(os.Stderr, "helper stderr")
+	fmt.Fprintln(os.Stdout, "input", args[4], "profile", uri.String())
 	if mode == "hang" {
 		for {
 			time.Sleep(time.Hour)
