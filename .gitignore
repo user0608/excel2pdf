@@ -4,6 +4,9 @@ certs
 *.db
 launch.json
 *.yml
+!/.golangci.yml
+!/.github/workflows/ci.yml
+/coverage.out
 build
 *.exe
 *.log

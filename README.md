@@ -1,6 +1,9 @@
 # excel2pdf
 Converts an Excel file to PDF, compatible with both Windows and Linux. Uses either LibreOffice or Microsoft Excel, with LibreOffice given priority if installed.
 
+Requires Go 1.22.5 or newer. Use a currently maintained Go release in production;
+the minimum version is tested for API compatibility, not recommended for security.
+
 ## Engines and configuration
 
 - **Linux:** requires LibreOffice. Detection searches `PATH` for `libreoffice`,
@@ -159,3 +162,98 @@ file-URI forms, and strip line breaks and terminal control characters. This is
 document-derived text, and underlying inspectable errors may still contain private
 data. Do not send raw errors to end users or public logs; translate them to safe
 application messages and apply your own logging/redaction policy.
+
+## Tests and CI
+
+Unit tests use controlled subprocesses and COM test doubles; they do not require
+an Office installation:
+
+```sh
+go test -race -shuffle=on -count=1 -timeout=2m ./...
+go vet ./...
+golangci-lint run ./...
+```
+
+The lint configuration includes integration-tagged sources without running them.
+CI pins golangci-lint v2.15.0; an older linter may not understand export data from a
+newer Go toolchain. Reachability-based dependency checks can be run with
+`govulncheck ./...`; on Linux, `GOOS=windows GOARCH=amd64 govulncheck ./...` also
+checks the Windows call graph using the host's installed scanner binary.
+
+### Real LibreOffice integration
+
+The `integration` build tag enables tests that generate a small XLSX fixture
+without additional Go dependencies, convert it twice through the public API, and
+convert same-named inputs from two separate processes. They check the PDF header,
+unique output directories, profile cleanup, and preservation of the source file.
+They do not validate visual fidelity, page layout, or every spreadsheet feature.
+
+On Linux, with LibreOffice Calc installed:
+
+```sh
+EXCEL2PDF_REQUIRE_LIBREOFFICE=1 go test -tags=integration -run '^TestIntegrationLibreOffice' -count=1 -timeout=5m -v .
+```
+
+Set `LIBREOFFICE_PATH` if the executable is not discovered automatically. Without
+`EXCEL2PDF_REQUIRE_LIBREOFFICE=1`, these tests skip when LibreOffice is absent;
+invalid explicit configuration still fails. With the variable set, absence fails
+the suite instead of producing a misleading green result.
+
+On Windows PowerShell, with LibreOffice installed:
+
+```powershell
+$env:LIBREOFFICE_PATH = 'C:\Program Files\LibreOffice\program\soffice.com'
+$env:EXCEL2PDF_REQUIRE_LIBREOFFICE = '1'
+go test -tags=integration -run '^TestIntegrationLibreOffice' -count=1 -timeout=5m -v .
+```
+
+To check interaction with an already-open desktop instance, run this suite while
+that instance is open. The tests themselves do not launch a GUI instance.
+
+### Real Excel integration (Windows only)
+
+Excel tests require both the build tag and an explicit environment opt-in. Run
+them only on a prepared, isolated Windows machine with Excel installed, a suitable
+user session, and no sensitive documents. They select the Excel backend directly
+even if LibreOffice is installed, test open/export failures and subsequent
+recovery, verify source preservation, and check that the source can be renamed
+after conversion. File-handle checks do not prove that every Excel process exited.
+
+```powershell
+$env:EXCEL2PDF_TEST_EXCEL = '1'
+go test -tags=integration -run '^TestIntegrationExcel' -count=1 -timeout=5m -v .
+Remove-Item Env:EXCEL2PDF_TEST_EXCEL
+```
+
+The context timeout still cannot interrupt a blocked COM call. The test runner's
+outer timeout can stop the Go test process but may leave Excel running; inspect
+the dedicated test environment afterward. These tests never terminate unrelated
+Excel instances by name.
+
+### GitHub Actions
+
+`.github/workflows/ci.yml` runs:
+
+- Race-enabled, shuffled unit tests and coverage on Linux and Windows, with Go
+  1.22.x and the current stable version; formatting, vet, and module metadata checks.
+- Cross-builds and compilation of unit/integration tests for Linux amd64/arm64 and
+  Windows 386/amd64/arm64. Cross-compilation does **not** execute those tests.
+- Linting and vulnerability reachability checks for Linux and Windows targets.
+- Real LibreOffice integration on Linux when manually dispatched with
+  `libreoffice_integration` enabled. That job installs Calc and fonts and requires
+  the engine to be present. Excel is not installed or launched by hosted CI.
+
+Coverage is retained as an artifact, not used as an arbitrary pass/fail threshold.
+The workflow uses read-only repository permissions and does not publish releases
+or deploy anything. Windows Excel and LibreOffice integration remain explicit
+local checks on prepared machines.
+
+## Example program
+
+```sh
+go run ./example /absolute/path/to/report.xlsx
+```
+
+The example uses a 30-second context deadline, reports the generated file's size,
+and removes its temporary output before exiting. To retain the PDF in an
+application, copy it to your destination before cleaning up the returned directory.

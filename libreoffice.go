@@ -13,17 +13,6 @@ import (
 	"unicode"
 )
 
-func convertExcelToPDFWithLibreOffice(ctx context.Context, excelFilePath, pdfFilePath string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	libreOfficePath, err := findLibreOfficeBinPath()
-	if err != nil {
-		return err
-	}
-	return runLibreOfficeConversion(ctx, libreOfficePath, excelFilePath, pdfFilePath, exec.CommandContext)
-}
-
 func runLibreOfficeConversion(ctx context.Context, binaryPath, inputPath, outputPath string, command func(context.Context, string, ...string) *exec.Cmd) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err

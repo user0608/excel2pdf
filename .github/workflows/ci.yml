@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      libreoffice_integration:
+        description: Run real LibreOffice integration tests on Linux
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        go: [1.22.x, stable]
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - name: Check formatting
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            printf '%s\n' "$files"
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go test -race -shuffle=on -count=1 -coverprofile=coverage.out -timeout=2m ./...
+      - name: Check module metadata
+        shell: bash
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Save coverage
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.go }}
+          path: coverage.out
+          if-no-files-found: ignore
+
+  cross-build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: '386'
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version: stable
+      - run: go build ./...
+      - run: go vet -tags=integration ./...
+      - name: Compile unit and integration tests without executing target binaries
+        run: go test -tags=integration -c -o "$RUNNER_TEMP/excel2pdf.test" .
+
+  lint:
+    name: Lint (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux, windows]
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version: stable
+      - uses: golangci/golangci-lint-action@v9.3.0
+        env:
+          GOOS: ${{ matrix.target }}
+          GOARCH: amd64
+        with:
+          version: v2.15.0
+
+  vulnerabilities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version: stable
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+      - run: govulncheck ./...
+      - name: Check Windows call graph
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: govulncheck ./...
+
+  libreoffice-integration:
+    if: github.event_name == 'workflow_dispatch' && inputs.libreoffice_integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXCEL2PDF_REQUIRE_LIBREOFFICE: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version: stable
+      - name: Install LibreOffice Calc and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libreoffice-calc fonts-dejavu-core
+      - run: go test -tags=integration -run '^TestIntegrationLibreOffice' -count=1 -timeout=5m -v .

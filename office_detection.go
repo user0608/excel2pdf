@@ -37,7 +37,7 @@ func resolveOfficeExecutable(name string) (string, error) {
 		return "", err
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("Office executable is not a regular file: %s", path)
+		return "", fmt.Errorf("resolved Office executable is not a regular file: %s", path)
 	}
 	return filepath.Abs(path)
 }

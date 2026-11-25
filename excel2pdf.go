@@ -98,7 +98,7 @@ func validateGeneratedPDF(path string) error {
 
 func absoluteExcelPath(path string) (string, error) {
 	if path == "" {
-		return "", errors.New("Excel input path is empty")
+		return "", errors.New("input path for Excel is empty")
 	}
 	path, err := filepath.Abs(path)
 	if err != nil {
@@ -109,7 +109,7 @@ func absoluteExcelPath(path string) (string, error) {
 		return "", fmt.Errorf("inspect Excel input: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("Excel input is not a regular file: %s", path)
+		return "", fmt.Errorf("input for Excel is not a regular file: %s", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
