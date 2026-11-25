@@ -32,3 +32,24 @@ func TestExcelCOMInitialized(t *testing.T) {
 		})
 	}
 }
+
+func TestLibreOfficeProfileURIWindowsPaths(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "drive", path: `C:\profiles\Office ñ # %`, want: "file:///C:/profiles/Office%20%C3%B1%20%23%20%25"},
+		{name: "UNC", path: `\\server\share\Office profile`, want: "file://server/share/Office%20profile"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := libreOfficeProfileURI(tt.path)
+			if err != nil || got != tt.want {
+				t.Errorf("libreOfficeProfileURI(%q) = (%q, %v), want %q", tt.path, got, err, tt.want)
+			}
+		})
+	}
+}

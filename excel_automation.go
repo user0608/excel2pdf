@@ -1,6 +1,7 @@
 package excel2pdf
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -13,7 +14,7 @@ type excelAutomationObject interface {
 	release() error
 }
 
-func exportExcelPDF(excel excelAutomationObject, inputPath, outputPath string) (err error) {
+func exportExcelPDF(ctx context.Context, excel excelAutomationObject, inputPath, outputPath string) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			if panicErr, ok := recovered.(error); ok {
@@ -26,6 +27,9 @@ func exportExcelPDF(excel excelAutomationObject, inputPath, outputPath string) (
 	defer func() {
 		addExcelCleanupError(&err, "quit Excel", excel.call("Quit"))
 	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	workbooks, err := excel.getObject("Workbooks")
 	if err != nil {
@@ -34,6 +38,9 @@ func exportExcelPDF(excel excelAutomationObject, inputPath, outputPath string) (
 	defer func() {
 		addExcelCleanupError(&err, "release Excel workbooks", workbooks.release())
 	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	workbook, err := workbooks.getObject("Open", inputPath)
 	if err != nil {
@@ -45,11 +52,14 @@ func exportExcelPDF(excel excelAutomationObject, inputPath, outputPath string) (
 	defer func() {
 		addExcelCleanupError(&err, "close Excel workbook", workbook.call("Close", false))
 	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if err := workbook.call("ExportAsFixedFormat", 0, outputPath); err != nil {
 		return fmt.Errorf("export Excel workbook as PDF: %w", err)
 	}
-	return nil
+	return ctx.Err()
 }
 
 func addExcelCleanupError(err *error, operation string, cleanupErr error) {

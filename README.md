@@ -10,6 +10,13 @@ removes that directory. On success, the caller owns the PDF and its directory an
 must remove them when no longer needed. The returned filename keeps the input's
 base name with a `.pdf` extension; uniqueness comes from the containing directory.
 
+LibreOffice uses a separate temporary user profile for every conversion, rather
+than sharing the user's existing profile. The package removes that profile after
+the process finishes, including on conversion failures. Process output is not
+written to the application's stdout or stderr; errors include captured diagnostics
+(up to 64 KiB, with a truncation marker when needed). A successful process exit
+without the expected PDF is still treated as a conversion failure.
+
 ```go
 package main
 
@@ -38,3 +45,42 @@ func main() {
     // Read, copy, or send the PDF before this function returns.
 }
 ```
+
+## Cancellation and timeouts
+
+Use `ConvertExcelToPdfContext` to supply a cancellation signal or deadline:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+pdfFilePath, err := excel2pdf.ConvertExcelToPdfContext(ctx, "file.xlsx")
+// Use errors.Is(err, context.Canceled) or
+// errors.Is(err, context.DeadlineExceeded) to distinguish cancellation/timeouts.
+// On success, consume and clean up the PDF as in the example above.
+```
+
+The snippet requires the `context` and `time` packages. The original
+`ConvertExcelToPdf` remains available and imposes **no default timeout**. Neither
+function queues concurrent requests: another active conversion in the same Go
+process causes `ErrExcel2PdfIsProcessing`. A nil context is rejected with an error.
+
+- **LibreOffice on Linux:** cancellation kills the conversion's own process group,
+  including descendants that remain in that group. Detached processes are not
+  guaranteed to be terminated. Output-pipe waits after process exit/cancellation
+  are capped at two seconds; process termination and filesystem cleanup can add
+  time beyond the context's deadline.
+- **LibreOffice on Windows:** cancellation kills only the launched process.
+  Descendant termination is **not guaranteed**; strict process-tree cancellation
+  requires a Windows Job Object or an isolated worker. Descendants may also retain
+  file handles and prevent temporary-directory cleanup, which is reported as an
+  error. The package never terminates other Office processes by name.
+- **Microsoft Excel:** cancellation is checked between COM operations. An ongoing
+  or blocked COM call, including cleanup, cannot be interrupted by a context, so
+  this API does **not** provide a strict Excel timeout. The package waits for COM
+  and attempts resource cleanup before returning. A strict timeout would require
+  a separate worker process.
+
+When cancellation is observed, the function returns no PDF path and attempts to
+remove its temporary files, even if the backend produced a PDF. Context errors
+remain inspectable with `errors.Is`, alongside any backend or cleanup errors.

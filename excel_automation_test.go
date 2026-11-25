@@ -1,6 +1,7 @@
 package excel2pdf
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -89,7 +90,7 @@ func TestExportExcelPDF(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			state := &fakeExcelState{failures: tt.failures, panicAt: tt.panicAt, panicValue: tt.panicValue}
-			err := exportExcelPDF(&fakeExcelObject{name: "excel", state: state}, "input.xlsx", "output.pdf")
+			err := exportExcelPDF(context.Background(), &fakeExcelObject{name: "excel", state: state}, "input.xlsx", "output.pdf")
 			if !reflect.DeepEqual(state.events, tt.wantEvents) {
 				t.Errorf("events = %v, want %v", state.events, tt.wantEvents)
 			}
@@ -117,12 +118,54 @@ func TestExportExcelPDF(t *testing.T) {
 	}
 }
 
+func TestExportExcelPDFCancellation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		cancelAt   string
+		wantEvents []string
+	}{
+		{name: "before workbooks", wantEvents: []string{"excel.Quit"}},
+		{
+			name: "before open", cancelAt: "excel.Workbooks",
+			wantEvents: []string{"excel.Workbooks", "workbooks.release", "excel.Quit"},
+		},
+		{
+			name: "after open", cancelAt: "workbooks.Open",
+			wantEvents: []string{"excel.Workbooks", "workbooks.Open", "workbook.Close", "workbook.release", "workbooks.release", "excel.Quit"},
+		},
+		{
+			name: "during export", cancelAt: "workbook.ExportAsFixedFormat",
+			wantEvents: []string{"excel.Workbooks", "workbooks.Open", "workbook.ExportAsFixedFormat", "workbook.Close", "workbook.release", "workbooks.release", "excel.Quit"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.cancelAt == "" {
+				cancel()
+			}
+			state := &fakeExcelState{after: map[string]func(){tt.cancelAt: cancel}}
+			err := exportExcelPDF(ctx, &fakeExcelObject{name: "excel", state: state}, "input.xlsx", "output.pdf")
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("error = %v, want context.Canceled", err)
+			}
+			if !reflect.DeepEqual(state.events, tt.wantEvents) {
+				t.Errorf("events = %v, want %v", state.events, tt.wantEvents)
+			}
+		})
+	}
+}
+
 type fakeExcelState struct {
 	events     []string
 	args       map[string][]any
 	failures   map[string]error
 	panicAt    string
 	panicValue any
+	after      map[string]func()
 }
 
 type fakeExcelObject struct {
@@ -137,6 +180,9 @@ func (object *fakeExcelObject) record(name string, args ...any) error {
 		object.state.args = make(map[string][]any)
 	}
 	object.state.args[event] = args
+	if after := object.state.after[event]; after != nil {
+		after()
+	}
 	if event == object.state.panicAt {
 		panic(object.state.panicValue)
 	}

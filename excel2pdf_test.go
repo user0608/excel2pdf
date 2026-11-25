@@ -1,10 +1,12 @@
 package excel2pdf
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestConvertExcelToPdfBusy(t *testing.T) {
@@ -25,6 +27,81 @@ func TestConvertExcelToPdfInvalidInputReleasesLock(t *testing.T) {
 		t.Fatal("conversion failure left the mutex locked")
 	}
 	mutex.Unlock()
+}
+
+func TestConvertExcelToPdfContext(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelDeadline()
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{name: "nil context"},
+		{name: "already canceled", ctx: canceled, want: context.Canceled},
+		{name: "expired deadline", ctx: expired, want: context.DeadlineExceeded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pdf, err := ConvertExcelToPdfContext(tt.ctx, "unused.xlsx")
+			if pdf != "" || err == nil {
+				t.Fatalf("conversion = (%q, %v), want empty path and error", pdf, err)
+			}
+			if tt.want != nil && !errors.Is(err, tt.want) {
+				t.Errorf("error = %v, want %v", err, tt.want)
+			}
+			if !mutex.TryLock() {
+				t.Fatal("rejected context left the mutex locked")
+			}
+			mutex.Unlock()
+		})
+	}
+	mutex.Lock()
+	defer mutex.Unlock()
+	if _, err := ConvertExcelToPdfContext(context.Background(), "unused.xlsx"); !errors.Is(err, ErrExcel2PdfIsProcessing) {
+		t.Errorf("concurrent context conversion error = %v", err)
+	}
+}
+
+func TestConvertExcelFileCancellation(t *testing.T) {
+	t.Parallel()
+	t.Run("canceled context does not reach backend", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := convertExcelFile(ctx, "unused.xlsx", func(context.Context, string, string) error {
+			t.Fatal("backend ran with an already canceled context")
+			return nil
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("error = %v, want context.Canceled", err)
+		}
+	})
+	t.Run("cancellation discards PDF and preserves backend error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		backendErr := errors.New("backend failure")
+		input := writeExcelTestInput(t, "input.xlsx")
+		var output string
+		pdf, err := convertExcelFile(ctx, input, func(gotCtx context.Context, _, outputPath string) error {
+			if gotCtx != ctx {
+				t.Fatal("backend received a different context")
+			}
+			output = outputPath
+			if err := os.WriteFile(output, []byte("%PDF-1.7\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cancel()
+			return backendErr
+		})
+		if pdf != "" || !errors.Is(err, context.Canceled) || !errors.Is(err, backendErr) {
+			t.Errorf("canceled conversion = (%q, %v)", pdf, err)
+		}
+		if _, err := os.Stat(filepath.Dir(output)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("canceled conversion directory was not removed: %v", err)
+		}
+	})
 }
 
 func TestConvertExcelFile(t *testing.T) {
@@ -54,7 +131,7 @@ func TestConvertExcelFile(t *testing.T) {
 				t.Fatal(err)
 			}
 			var output string
-			got, err := convertExcelFile(relativeInput, func(inputPath, outputPath string) error {
+			got, err := convertExcelFile(context.Background(), relativeInput, func(_ context.Context, inputPath, outputPath string) error {
 				output = outputPath
 				if inputPath != input || !filepath.IsAbs(outputPath) {
 					t.Fatalf("backend paths = (%q, %q), want absolute paths", inputPath, outputPath)
@@ -121,7 +198,7 @@ func TestConvertExcelFileRejectsInvalidInput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			path, err := convertExcelFile(tt.path, func(_, _ string) error {
+			path, err := convertExcelFile(context.Background(), tt.path, func(_ context.Context, _, _ string) error {
 				t.Fatal("backend must not run for invalid input")
 				return nil
 			})
@@ -139,15 +216,15 @@ func TestConvertExcelFileIsolatesSameName(t *testing.T) {
 	t.Parallel()
 	firstInput := writeExcelTestInput(t, "report.xlsx")
 	secondInput := writeExcelTestInput(t, "report.xlsx")
-	writePDF := func(_, output string) error {
+	writePDF := func(_ context.Context, _, output string) error {
 		return os.WriteFile(output, []byte("%PDF-1.7\n"), 0o600)
 	}
-	first, err := convertExcelFile(firstInput, writePDF)
+	first, err := convertExcelFile(context.Background(), firstInput, writePDF)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { removeExcelTestOutput(t, first) })
-	second, err := convertExcelFile(secondInput, writePDF)
+	second, err := convertExcelFile(context.Background(), secondInput, writePDF)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +232,7 @@ func TestConvertExcelFileIsolatesSameName(t *testing.T) {
 	if filepath.Dir(first) == filepath.Dir(second) {
 		t.Fatal("conversions share a temporary directory")
 	}
-	path, err := convertExcelFile(secondInput, func(_, _ string) error { return nil })
+	path, err := convertExcelFile(context.Background(), secondInput, func(_ context.Context, _, _ string) error { return nil })
 	if path != "" || err == nil {
 		t.Fatalf("missing output reused an earlier PDF: (%q, %v)", path, err)
 	}
@@ -177,7 +254,7 @@ func TestConvertExcelFileRejectsOutputSymlink(t *testing.T) {
 		t.Skipf("symbolic links are unavailable: %v", err)
 	}
 	var output string
-	path, err := convertExcelFile(input, func(_, outputPath string) error {
+	path, err := convertExcelFile(context.Background(), input, func(_ context.Context, _, outputPath string) error {
 		output = outputPath
 		if err := os.Symlink(target, outputPath); err != nil {
 			return err

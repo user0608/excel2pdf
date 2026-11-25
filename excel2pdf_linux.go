@@ -3,6 +3,8 @@
 
 package excel2pdf
 
-func convertExcelToPdf(excelFile, pdfFile string) error {
-	return convertExcelToPDFWithLibreOffice(excelFile, pdfFile)
+import "context"
+
+func convertExcelToPdf(ctx context.Context, excelFile, pdfFile string) error {
+	return convertExcelToPDFWithLibreOffice(ctx, excelFile, pdfFile)
 }

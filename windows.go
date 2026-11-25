@@ -4,6 +4,7 @@
 package excel2pdf
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"runtime"
@@ -12,7 +13,10 @@ import (
 	"github.com/go-ole/go-ole/oleutil"
 )
 
-func convertExcelToPDFWithExcel(excelFilePath, pdfFilePath string) error {
+func convertExcelToPDFWithExcel(ctx context.Context, excelFilePath, pdfFilePath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED|ole.COINIT_SPEED_OVER_MEMORY)
@@ -33,7 +37,7 @@ func convertExcelToPDFWithExcel(excelFilePath, pdfFilePath string) error {
 	}
 	defer excel.Release()
 
-	return exportExcelPDF(&comExcelObject{dispatch: excel}, excelFilePath, pdfFilePath)
+	return exportExcelPDF(ctx, &comExcelObject{dispatch: excel}, excelFilePath, pdfFilePath)
 }
 
 func excelCOMInitialized(err error) bool {
