@@ -13,22 +13,16 @@ import (
 var (
 	mutex sync.Mutex
 )
-var ErrExcel2PdfIsProcessing = errors.New("a process is currently running using the resource")
+var ErrConversionInProgress = errors.New("a conversion is currently running")
+var ErrUnsupportedFormat = errors.New("unsupported document format")
 
-// ConvertExcelToPdf converts a readable, regular Excel file to PDF. The returned
-// absolute path is inside a new temporary directory owned by this conversion.
-// On success, the caller must remove the PDF and its containing directory when
-// no longer needed. On failure, the package removes the temporary directory.
-func ConvertExcelToPdf(excelFile string) (pdfFile string, err error) {
-	return ConvertExcelToPdfContext(context.Background(), excelFile)
-}
-
-// ConvertExcelToPdfContext is ConvertExcelToPdf with cancellation support. It
-// rejects concurrent conversions rather than waiting for the active conversion.
-// LibreOffice's launched process is canceled with ctx; on Linux its process group
-// is killed as well. Excel checks ctx between COM operations, but a blocked COM
-// call cannot be interrupted. No default timeout is imposed. ctx must not be nil.
-func ConvertExcelToPdfContext(ctx context.Context, excelFile string) (pdfFile string, err error) {
+// ConvertToPDF converts an .xlsx or .docx file to PDF, preferring LibreOffice.
+// Windows falls back to Excel or Word when LibreOffice is not installed.
+// The caller owns the returned PDF and its exclusive temporary directory and
+// must remove them after use. Failed conversions are cleaned up by the package.
+// Concurrent conversions are rejected. ctx must not be nil; there is no default
+// timeout, and a context cannot interrupt an ongoing Microsoft Office COM call.
+func ConvertToPDF(ctx context.Context, inputPath string) (pdfFile string, err error) {
 	if ctx == nil {
 		return "", errors.New("conversion context must not be nil")
 	}
@@ -36,17 +30,17 @@ func ConvertExcelToPdfContext(ctx context.Context, excelFile string) (pdfFile st
 		return "", err
 	}
 	if !mutex.TryLock() {
-		return "", ErrExcel2PdfIsProcessing
+		return "", ErrConversionInProgress
 	}
 	defer mutex.Unlock()
-	return convertExcelFile(ctx, excelFile, convertExcelToPdf)
+	return convertDocumentFile(ctx, inputPath, convertToPDF)
 }
 
-func convertExcelFile(ctx context.Context, excelFile string, convert func(context.Context, string, string) error) (pdfFile string, err error) {
+func convertDocumentFile(ctx context.Context, input string, convert func(context.Context, string, string) error) (pdfFile string, err error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	inputPath, err := absoluteExcelPath(excelFile)
+	inputPath, err := absoluteInputPath(input)
 	if err != nil {
 		return "", err
 	}
@@ -76,7 +70,7 @@ func convertExcelFile(ctx context.Context, excelFile string, convert func(contex
 		err = errors.Join(err, ctxErr)
 	}
 	if err != nil {
-		return "", fmt.Errorf("convert Excel to PDF: %w", err)
+		return "", fmt.Errorf("convert document to PDF: %w", err)
 	}
 	if err := validateGeneratedPDF(outputPath); err != nil {
 		return "", err
@@ -96,27 +90,48 @@ func validateGeneratedPDF(path string) error {
 	return nil
 }
 
-func absoluteExcelPath(path string) (string, error) {
+func absoluteInputPath(path string) (string, error) {
 	if path == "" {
-		return "", errors.New("input path for Excel is empty")
+		return "", errors.New("input path is empty")
 	}
 	path, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("resolve Excel input path: %w", err)
+		return "", fmt.Errorf("resolve input path: %w", err)
+	}
+	if _, err := documentKindForPath(path); err != nil {
+		return "", err
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("inspect Excel input: %w", err)
+		return "", fmt.Errorf("inspect input: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("input for Excel is not a regular file: %s", path)
+		return "", fmt.Errorf("input is not a regular file: %s", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("open Excel input: %w", err)
+		return "", fmt.Errorf("open input: %w", err)
 	}
 	if err := file.Close(); err != nil {
-		return "", fmt.Errorf("close Excel input: %w", err)
+		return "", fmt.Errorf("close input: %w", err)
 	}
 	return path, nil
+}
+
+type documentKind uint8
+
+const (
+	spreadsheetDocument documentKind = iota
+	wordDocument
+)
+
+func documentKindForPath(path string) (documentKind, error) {
+	switch extension := strings.ToLower(filepath.Ext(path)); extension {
+	case ".xlsx":
+		return spreadsheetDocument, nil
+	case ".docx":
+		return wordDocument, nil
+	default:
+		return 0, fmt.Errorf("%w: %q (expected .xlsx or .docx)", ErrUnsupportedFormat, extension)
+	}
 }

@@ -24,7 +24,7 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	pdf, err := excel2pdf.ConvertExcelToPdfContext(ctx, input)
+	pdf, err := excel2pdf.ConvertToPDF(ctx, input)
 	if err != nil {
 		return err
 	}

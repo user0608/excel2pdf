@@ -1,8 +1,33 @@
 # Plan de mejora de excel2pdf
 
-## Objetivo
+## Objetivo original (histórico)
 
 Hacer más confiable la conversión de Excel a PDF con LibreOffice y Microsoft Excel, conservando la compatibilidad de `ConvertExcelToPdf` y la prioridad actual de LibreOffice.
+
+## Ampliación posterior: DOCX y API única
+
+Por decisión posterior, no se requiere compatibilidad con las funciones anteriores.
+La API de conversión pasa a ser únicamente `ConvertToPDF(ctx, inputPath)`, para
+`.xlsx` y `.docx` (sin distinción de mayúsculas). Otras extensiones se rechazan
+mediante `ErrUnsupportedFormat`; la concurrencia se comunica mediante
+`ErrConversionInProgress`.
+
+LibreOffice mantiene la prioridad para ambos formatos. Windows selecciona Excel
+para XLSX y Word para DOCX si LibreOffice está ausente; se reutilizan la detección
+COM, la propiedad de recursos y la validación de salida. Word abre en solo lectura,
+sin actualizar enlaces ni añadir documentos recientes, con macros VBA desactivadas,
+y exporta mediante `ExportAsFixedFormat` antes de cerrar sin guardar. Los límites
+de cancelación y aislamiento de COM también se aplican a Word.
+
+Se añaden pruebas unitarias de Word, detección de su registro, extensiones
+admitidas/rechazadas e integración DOCX con LibreOffice y Word. El workflow de
+integración instala también LibreOffice Writer. Los apartados siguientes conservan
+el historial de las siete etapas originales y sus nombres de API de entonces.
+
+Las conversiones reales de XLSX y DOCX con LibreOffice y la prueba con procesos
+separados son correctas en Linux. Word conserva y restaura la opción original de
+actualización de enlaces; sus rutas de error y limpieza tienen pruebas con dobles.
+La ejecución con Microsoft Word instalado sigue pendiente de validación en Windows.
 
 ## Avance
 

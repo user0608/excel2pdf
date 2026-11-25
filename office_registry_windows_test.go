@@ -210,3 +210,30 @@ func TestFindExcelRegistration(t *testing.T) {
 		}
 	})
 }
+
+func TestFindWordRegistration(t *testing.T) {
+	t.Parallel()
+	const classID = "{000209FF-0000-0000-C000-000000000046}"
+	for i, location := range officeRegistryLocations() {
+		t.Run([]string{"user64", "user32", "machine64", "machine32"}[i], func(t *testing.T) {
+			t.Parallel()
+			data := officeRegistryTestData{values: map[officeRegistryTestKey]string{
+				{root: location.root, view: location.view, path: `SOFTWARE\Classes\Word.Application\CLSID`}:              classID,
+				{root: location.root, view: location.view, path: `SOFTWARE\Classes\CLSID\` + classID + `\LocalServer32`}: "WINWORD.EXE",
+			}}
+			if installed, err := findOfficeRegistration("Word.Application", data.read); !installed || err != nil {
+				t.Errorf("Word registration = (%v, %v)", installed, err)
+			}
+			if installed, err := findExcelRegistration(data.read); installed || err != nil {
+				t.Errorf("Word registration incorrectly detected as Excel: (%v, %v)", installed, err)
+			}
+		})
+	}
+	data := officeRegistryTestData{values: map[officeRegistryTestKey]string{
+		{root: registry.CURRENT_USER, view: registry.WOW64_64KEY, path: `SOFTWARE\Classes\Excel.Application\CLSID`}:                                    "{00024500-0000-0000-C000-000000000046}",
+		{root: registry.CURRENT_USER, view: registry.WOW64_64KEY, path: `SOFTWARE\Classes\CLSID\{00024500-0000-0000-C000-000000000046}\LocalServer32`}: "EXCEL.EXE",
+	}}
+	if installed, err := findOfficeRegistration("Word.Application", data.read); installed || err != nil {
+		t.Errorf("Excel registration incorrectly detected as Word: (%v, %v)", installed, err)
+	}
+}

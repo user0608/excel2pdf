@@ -80,9 +80,9 @@ func TestFindOfficeEngine(t *testing.T) {
 		wantAnyErr      bool
 	}{
 		{name: "LibreOffice has priority", libreOfficePath: "soffice", excelInstalled: true, want: officeEngine{libreOfficePath: "soffice"}},
-		{name: "Excel when LibreOffice absent", libreOfficeErr: ErrLibreofficeNotInstalled, excelInstalled: true, want: officeEngine{useExcel: true}, wantExcelProbe: true},
-		{name: "wrapped absence", libreOfficeErr: fmt.Errorf("probe: %w", ErrLibreofficeNotInstalled), excelInstalled: true, want: officeEngine{useExcel: true}, wantExcelProbe: true},
-		{name: "neither installed", libreOfficeErr: ErrLibreofficeNotInstalled, wantExcelProbe: true, wantErr: ErrExcelOrLibreOfficeNotInstalled},
+		{name: "Microsoft Office when LibreOffice absent", libreOfficeErr: ErrLibreofficeNotInstalled, excelInstalled: true, want: officeEngine{useMicrosoftOffice: true}, wantExcelProbe: true},
+		{name: "wrapped absence", libreOfficeErr: fmt.Errorf("probe: %w", ErrLibreofficeNotInstalled), excelInstalled: true, want: officeEngine{useMicrosoftOffice: true}, wantExcelProbe: true},
+		{name: "neither installed", libreOfficeErr: ErrLibreofficeNotInstalled, wantExcelProbe: true, wantErr: ErrOfficeNotInstalled},
 		{name: "LibreOffice lookup error is not absence", libreOfficeErr: lookupErr, wantErr: lookupErr},
 		{name: "Excel lookup error is not absence", libreOfficeErr: ErrLibreofficeNotInstalled, excelErr: lookupErr, wantExcelProbe: true, wantErr: lookupErr},
 		{name: "empty successful detection is rejected", wantAnyErr: true},

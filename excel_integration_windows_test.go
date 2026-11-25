@@ -21,12 +21,12 @@ func TestIntegrationExcelConversion(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	// Call the Excel backend explicitly, even when LibreOffice is installed.
-	pdf, err := convertExcelFile(ctx, input, convertExcelToPDFWithExcel)
+	pdf, err := convertDocumentFile(ctx, input, convertExcelToPDFWithExcel)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertIntegrationPDF(t, pdf)
-	assertIntegrationExcelInputReleased(t, input, original)
+	assertIntegrationOfficeInputReleased(t, input, original)
 }
 
 func TestIntegrationExcelFailureRecovery(t *testing.T) {
@@ -54,13 +54,13 @@ func TestIntegrationExcelFailureRecovery(t *testing.T) {
 		if err := convertExcelToPDFWithExcel(ctx, input, output); err == nil {
 			t.Fatal("export to a missing directory unexpectedly succeeded")
 		}
-		assertIntegrationExcelInputReleased(t, input, original)
+		assertIntegrationOfficeInputReleased(t, input, original)
 	})
 	// A new conversion must work after both failure paths.
 	input := writeIntegrationWorkbook(t, "recovery.xlsx")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	pdf, err := convertExcelFile(ctx, input, convertExcelToPDFWithExcel)
+	pdf, err := convertDocumentFile(ctx, input, convertExcelToPDFWithExcel)
 	if err != nil {
 		t.Fatalf("conversion after failure paths: %v", err)
 	}
@@ -81,11 +81,11 @@ func requireIntegrationExcel(t *testing.T) {
 	}
 }
 
-func assertIntegrationExcelInputReleased(t *testing.T, input string, original []byte) {
+func assertIntegrationOfficeInputReleased(t *testing.T, input string, original []byte) {
 	t.Helper()
 	after, err := os.ReadFile(input)
 	if err != nil || !bytes.Equal(after, original) {
-		t.Fatalf("Excel modified the source workbook: %v", err)
+		t.Fatalf("Office modified the source document: %v", err)
 	}
 	// Windows won't allow this operation if Excel retains a conflicting file
 	// handle. This tests workbook release, not the absence of every Excel PID.

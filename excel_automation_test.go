@@ -255,7 +255,7 @@ func (object *fakeExcelObject) record(name string, args ...any) error {
 	return object.state.failures[event]
 }
 
-func (object *fakeExcelObject) getObject(name string, args ...any) (excelAutomationObject, error) {
+func (object *fakeExcelObject) getObject(name string, args ...any) (officeAutomationObject, error) {
 	if err := object.record(name, args...); err != nil {
 		return nil, err
 	}
@@ -272,6 +272,10 @@ func (object *fakeExcelObject) call(name string, args ...any) error {
 
 func (object *fakeExcelObject) setProperty(name string, value any) error {
 	return object.record("set."+name, value)
+}
+
+func (object *fakeExcelObject) getBoolProperty(name string) (bool, error) {
+	return true, object.record("get." + name)
 }
 
 func excelSecurityTestEvents() []string {

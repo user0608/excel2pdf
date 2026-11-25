@@ -6,16 +6,17 @@ import (
 	"fmt"
 )
 
-// excelAutomationObject isolates the COM boundary so the workbook lifecycle can
+// officeAutomationObject isolates the COM boundary so the document lifecycle can
 // be tested without Windows or an Office installation.
-type excelAutomationObject interface {
-	getObject(name string, args ...any) (excelAutomationObject, error)
+type officeAutomationObject interface {
+	getObject(name string, args ...any) (officeAutomationObject, error)
+	getBoolProperty(name string) (bool, error)
 	setProperty(name string, value any) error
 	call(name string, args ...any) error
 	release() error
 }
 
-func exportExcelPDF(ctx context.Context, excel excelAutomationObject, inputPath, outputPath string) (err error) {
+func exportExcelPDF(ctx context.Context, excel officeAutomationObject, inputPath, outputPath string) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			if panicErr, ok := recovered.(error); ok {
@@ -26,7 +27,7 @@ func exportExcelPDF(ctx context.Context, excel excelAutomationObject, inputPath,
 		}
 	}()
 	defer func() {
-		addExcelCleanupError(&err, "quit Excel", excel.call("Quit"))
+		addOfficeCleanupError(&err, "quit Excel", excel.call("Quit"))
 	}()
 	if err := configureExcelSecurity(ctx, excel); err != nil {
 		return err
@@ -37,7 +38,7 @@ func exportExcelPDF(ctx context.Context, excel excelAutomationObject, inputPath,
 		return fmt.Errorf("get Excel workbooks: %w", err)
 	}
 	defer func() {
-		addExcelCleanupError(&err, "release Excel workbooks", workbooks.release())
+		addOfficeCleanupError(&err, "release Excel workbooks", workbooks.release())
 	}()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -50,10 +51,10 @@ func exportExcelPDF(ctx context.Context, excel excelAutomationObject, inputPath,
 		return fmt.Errorf("open Excel workbook: %w", err)
 	}
 	defer func() {
-		addExcelCleanupError(&err, "release Excel workbook", workbook.release())
+		addOfficeCleanupError(&err, "release Excel workbook", workbook.release())
 	}()
 	defer func() {
-		addExcelCleanupError(&err, "close Excel workbook", workbook.call("Close", false))
+		addOfficeCleanupError(&err, "close Excel workbook", workbook.call("Close", false))
 	}()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -65,7 +66,7 @@ func exportExcelPDF(ctx context.Context, excel excelAutomationObject, inputPath,
 	return ctx.Err()
 }
 
-func configureExcelSecurity(ctx context.Context, excel excelAutomationObject) error {
+func configureExcelSecurity(ctx context.Context, excel officeAutomationObject) error {
 	for _, property := range []struct {
 		name  string
 		value any
@@ -88,7 +89,7 @@ func configureExcelSecurity(ctx context.Context, excel excelAutomationObject) er
 	return ctx.Err()
 }
 
-func addExcelCleanupError(err *error, operation string, cleanupErr error) {
+func addOfficeCleanupError(err *error, operation string, cleanupErr error) {
 	if cleanupErr != nil {
 		*err = errors.Join(*err, fmt.Errorf("%s: %w", operation, cleanupErr))
 	}

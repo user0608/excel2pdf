@@ -12,10 +12,18 @@ func isExcelInstalled() (bool, error) {
 	return findExcelRegistration(readOfficeRegistryString)
 }
 
+func isWordInstalled() (bool, error) {
+	return findOfficeRegistration("Word.Application", readOfficeRegistryString)
+}
+
 func findExcelRegistration(read officeRegistryStringReader) (bool, error) {
+	return findOfficeRegistration("Excel.Application", read)
+}
+
+func findOfficeRegistration(programID string, read officeRegistryStringReader) (bool, error) {
 	var lookupErrors []error
 	for _, location := range officeRegistryLocations() {
-		classID, err := read(location.root, `SOFTWARE\Classes\Excel.Application\CLSID`, "", location.view)
+		classID, err := read(location.root, `SOFTWARE\Classes\`+programID+`\CLSID`, "", location.view)
 		if err != nil {
 			lookupErrors = append(lookupErrors, err)
 			continue
@@ -25,7 +33,7 @@ func findExcelRegistration(read officeRegistryStringReader) (bool, error) {
 		}
 		guid := ole.NewGUID(classID)
 		if guid == nil {
-			lookupErrors = append(lookupErrors, fmt.Errorf("invalid Excel COM class ID %q", classID))
+			lookupErrors = append(lookupErrors, fmt.Errorf("invalid %s COM class ID %q", programID, classID))
 			continue
 		}
 		// COM combines per-user and machine class registrations. A per-user

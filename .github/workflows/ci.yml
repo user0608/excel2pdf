@@ -145,8 +145,8 @@ jobs:
       - uses: actions/setup-go@v7.1.0
         with:
           go-version: stable
-      - name: Install LibreOffice Calc and fonts
+      - name: Install LibreOffice Calc, Writer and fonts
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libreoffice-calc fonts-dejavu-core
+          sudo apt-get install --yes --no-install-recommends libreoffice-calc libreoffice-writer fonts-dejavu-core
       - run: go test -tags=integration -run '^TestIntegrationLibreOffice' -count=1 -timeout=5m -v .

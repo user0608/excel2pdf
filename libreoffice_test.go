@@ -34,7 +34,7 @@ func TestRunLibreOfficeConversion(t *testing.T) {
 			input := writeExcelTestInput(t, "report with spaces ñ.xlsx")
 			var profilePath string
 			command := libreOfficeHelperCommand(t, tt.mode, &profilePath)
-			pdf, err := convertExcelFile(context.Background(), input, func(ctx context.Context, inputPath, outputPath string) error {
+			pdf, err := convertDocumentFile(context.Background(), input, func(ctx context.Context, inputPath, outputPath string) error {
 				return runLibreOfficeConversion(ctx, "fake-libreoffice", inputPath, outputPath, command)
 			})
 			if (err != nil) != tt.wantErr {
@@ -122,7 +122,7 @@ func TestRunLibreOfficeConversionCancellation(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				pdf, err := convertExcelFile(ctx, input, func(ctx context.Context, input, output string) error {
+				pdf, err := convertDocumentFile(ctx, input, func(ctx context.Context, input, output string) error {
 					var profile string
 					helper := libreOfficeHelperCommand(t, "hang", &profile)
 					command := func(ctx context.Context, binary string, args ...string) *exec.Cmd {

@@ -10,7 +10,7 @@ import (
 )
 
 var ErrLibreofficeNotInstalled = errors.New("LibreOffice is not installed")
-var ErrExcelOrLibreOfficeNotInstalled = errors.New("neither Microsoft Excel nor LibreOffice is installed on this system")
+var ErrOfficeNotInstalled = errors.New("neither LibreOffice nor the required Microsoft Office application is installed")
 
 func libreOfficeOverride() (path string, configured bool, err error) {
 	value, configured := os.LookupEnv("LIBREOFFICE_PATH")
@@ -56,11 +56,11 @@ func findLibreOfficeOnPath(names ...string) (string, error) {
 }
 
 type officeEngine struct {
-	libreOfficePath string
-	useExcel        bool
+	libreOfficePath    string
+	useMicrosoftOffice bool
 }
 
-func findOfficeEngine(findLibreOffice func() (string, error), findExcel func() (bool, error)) (officeEngine, error) {
+func findOfficeEngine(findLibreOffice func() (string, error), findMicrosoftOffice func() (bool, error)) (officeEngine, error) {
 	path, err := findLibreOffice()
 	if err == nil {
 		if path == "" {
@@ -71,12 +71,12 @@ func findOfficeEngine(findLibreOffice func() (string, error), findExcel func() (
 	if !errors.Is(err, ErrLibreofficeNotInstalled) {
 		return officeEngine{}, err
 	}
-	installed, err := findExcel()
+	installed, err := findMicrosoftOffice()
 	if err != nil {
 		return officeEngine{}, err
 	}
 	if installed {
-		return officeEngine{useExcel: true}, nil
+		return officeEngine{useMicrosoftOffice: true}, nil
 	}
-	return officeEngine{}, ErrExcelOrLibreOfficeNotInstalled
+	return officeEngine{}, ErrOfficeNotInstalled
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/go-ole/go-ole"
 )
 
-func TestExcelCOMInitialized(t *testing.T) {
+func TestOfficeCOMInitialized(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -26,8 +26,8 @@ func TestExcelCOMInitialized(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := excelCOMInitialized(tt.err); got != tt.want {
-				t.Errorf("excelCOMInitialized(%v) = %v, want %v", tt.err, got, tt.want)
+			if got := officeCOMInitialized(tt.err); got != tt.want {
+				t.Errorf("officeCOMInitialized(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}

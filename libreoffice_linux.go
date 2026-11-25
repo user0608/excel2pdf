@@ -12,7 +12,7 @@ func findLibreOfficeBinPath() (string, error) {
 	return findLibreOfficeOnPath("libreoffice", "libreoffice24.8", "soffice")
 }
 
-func convertExcelToPDFWithLibreOffice(ctx context.Context, excelFilePath, pdfFilePath string) error {
+func convertWithLibreOffice(ctx context.Context, inputPath, pdfFilePath string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -20,5 +20,5 @@ func convertExcelToPDFWithLibreOffice(ctx context.Context, excelFilePath, pdfFil
 	if err != nil {
 		return err
 	}
-	return runLibreOfficeConversion(ctx, libreOfficePath, excelFilePath, pdfFilePath, exec.CommandContext)
+	return runLibreOfficeConversion(ctx, libreOfficePath, inputPath, pdfFilePath, exec.CommandContext)
 }

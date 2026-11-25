@@ -8,16 +8,26 @@ import (
 	"os/exec"
 )
 
-func convertExcelToPdf(ctx context.Context, excelFile, pdfFile string) error {
+func convertToPDF(ctx context.Context, inputFile, pdfFile string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	engine, err := findOfficeEngine(findLibreOfficeBinPath, isExcelInstalled)
+	kind, err := documentKindForPath(inputFile)
 	if err != nil {
 		return err
 	}
-	if engine.useExcel {
-		return convertExcelToPDFWithExcel(ctx, excelFile, pdfFile)
+	findMicrosoftOffice := isExcelInstalled
+	convertMicrosoftOffice := convertExcelToPDFWithExcel
+	if kind == wordDocument {
+		findMicrosoftOffice = isWordInstalled
+		convertMicrosoftOffice = convertDocumentToPDFWithWord
 	}
-	return runLibreOfficeConversion(ctx, engine.libreOfficePath, excelFile, pdfFile, exec.CommandContext)
+	engine, err := findOfficeEngine(findLibreOfficeBinPath, findMicrosoftOffice)
+	if err != nil {
+		return err
+	}
+	if engine.useMicrosoftOffice {
+		return convertMicrosoftOffice(ctx, inputFile, pdfFile)
+	}
+	return runLibreOfficeConversion(ctx, engine.libreOfficePath, inputFile, pdfFile, exec.CommandContext)
 }
