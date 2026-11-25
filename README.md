@@ -1,6 +1,36 @@
 # excel2pdf
 Converts an Excel file to PDF, compatible with both Windows and Linux. Uses either LibreOffice or Microsoft Excel, with LibreOffice given priority if installed.
 
+## Engines and configuration
+
+- **Linux:** requires LibreOffice. Detection searches `PATH` for `libreoffice`,
+  then `libreoffice24.8`, then `soffice`, without depending on `which`.
+- **Windows:** searches `PATH` for `soffice.com`, `soffice.exe`, `libreoffice`, then
+  `libreoffice24.8`. If absent, it checks LibreOffice's UNO installation and
+  versioned registry keys for the current user and machine, in both 64-bit and
+  32-bit views. Registered directories are resolved to `soffice.com` or
+  `soffice.exe`, directly or under `program`; stale entries are skipped.
+  Microsoft Excel is selected only if LibreOffice is absent, using Excel's COM
+  ProgID and local-server registrations in the same registry scopes and views.
+  COM registration is a discovery check, not a guarantee that Excel can start.
+- **macOS and other operating systems:** not supported.
+
+Set `LIBREOFFICE_PATH` to override discovery with an executable file path or a
+command resolvable through `PATH`. A path containing spaces should be stored
+without literal wrapping quotes. The result must be a regular executable file;
+a directory, empty/whitespace value, or invalid location is an explicit
+configuration error. **Unset** the variable to restore automatic discovery.
+
+Detection/permission errors are returned rather than treated as "not installed".
+If LibreOffice is selected but conversion fails, the package returns that error
+and does **not** retry using Excel. This avoids silently changing the rendering
+engine after a document-specific failure. Absence can be inspected using
+`errors.Is(err, excel2pdf.ErrLibreofficeNotInstalled)` on Linux, or
+`errors.Is(err, excel2pdf.ErrExcelOrLibreOfficeNotInstalled)` when neither engine
+is found on Windows.
+
+## Conversion and temporary files
+
 The input must be a readable, regular file. Relative input paths are resolved to
 absolute paths before starting Office. The function returns an error if the
 conversion does not produce a non-empty, regular PDF file.
