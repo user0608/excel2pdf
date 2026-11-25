@@ -9,7 +9,10 @@ Hacer más confiable la conversión de Excel a PDF con LibreOffice y Microsoft E
 - **Etapa 1 implementada:** llamadas COM sin variantes `Must`, errores de pánico explícitos, cierre del libro y de Excel en las rutas de error, liberación de los `VARIANT` propietarios y tratamiento correcto de `S_FALSE` al inicializar COM.
 - **Verificación de etapa 1:** 12 casos unitarios del ciclo de vida ejecutados en Linux con `go test -race ./...`; `go vet` correcto en Linux y para Windows amd64; pruebas de Windows compiladas mediante compilación cruzada.
 - **Pendiente de validar en Windows con Office:** comportamiento real de apertura, exportación, cierre y liberación de recursos. Las pruebas del resultado de inicialización COM están añadidas, pero no se han ejecutado en Windows.
-- **Siguiente etapa:** aislamiento de archivos temporales y validación del PDF generado.
+- **Etapa 2 implementada:** rutas de entrada absolutas y archivos regulares accesibles; directorios temporales exclusivos para ambos motores; eliminación de marcas de tiempo y renombrados compartidos; comprobación de que la salida sea un archivo regular no vacío y no un enlace simbólico; limpieza de temporales ante fallos.
+- **Verificación de etapa 2:** pruebas de entradas inválidas, rutas relativas, espacios y Unicode, salida ausente o vacía, salida de tipo directorio o enlace, error con PDF parcial, nombres repetidos y liberación del mutex. `go test -race ./...` y `go vet` correctos en Linux; compilación de pruebas y `go vet` correctos para Windows amd64. No se han ejecutado conversiones reales con Office.
+- **Contrato de limpieza documentado:** el consumidor elimina el PDF y su directorio exclusivo después de una conversión exitosa; el paquete limpia las conversiones fallidas.
+- **Siguiente etapa:** aislamiento del perfil y robustecimiento de la ejecución de LibreOffice.
 
 ## Etapa 1: Corregir errores y liberar recursos de Excel
 

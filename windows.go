@@ -6,49 +6,34 @@ package excel2pdf
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"runtime"
-	"strings"
-	"time"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 )
 
-func convertExcelToPDFWithExcel(excelFilePath string) (pdfFilePath string, err error) {
+func convertExcelToPDFWithExcel(excelFilePath, pdfFilePath string) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	err = ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED|ole.COINIT_SPEED_OVER_MEMORY)
+	err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED|ole.COINIT_SPEED_OVER_MEMORY)
 	if !excelCOMInitialized(err) {
-		return "", fmt.Errorf("failed to initialize OLE: %w", err)
+		return fmt.Errorf("failed to initialize OLE: %w", err)
 	}
 	defer ole.CoUninitialize()
 
 	unknown, err := oleutil.CreateObject("Excel.Application")
 	if err != nil {
-		return "", fmt.Errorf("failed to create Excel object: %w", err)
+		return fmt.Errorf("failed to create Excel object: %w", err)
 	}
 	defer unknown.Release()
 
 	excel, err := unknown.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
-		return "", fmt.Errorf("failed to query Excel interface: %w", err)
+		return fmt.Errorf("failed to query Excel interface: %w", err)
 	}
 	defer excel.Release()
 
-	pdfFilePath = fmt.Sprintf("%s-%d.pdf",
-		strings.TrimSuffix(
-			filepath.Base(excelFilePath),
-			filepath.Ext(excelFilePath),
-		),
-		time.Now().Unix(),
-	)
-	pdfFilePath = filepath.Join(os.TempDir(), pdfFilePath)
-	if err := exportExcelPDF(&comExcelObject{dispatch: excel}, excelFilePath, pdfFilePath); err != nil {
-		return "", err
-	}
-	return pdfFilePath, nil
+	return exportExcelPDF(&comExcelObject{dispatch: excel}, excelFilePath, pdfFilePath)
 }
 
 func excelCOMInitialized(err error) bool {
