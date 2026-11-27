@@ -17,18 +17,25 @@ type officeAutomationObject interface {
 }
 
 func exportExcelPDF(ctx context.Context, excel officeAutomationObject, inputPath, outputPath string) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			if panicErr, ok := recovered.(error); ok {
-				err = errors.Join(err, fmt.Errorf("excel automation panic: %w", panicErr))
-			} else {
-				err = errors.Join(err, fmt.Errorf("excel automation panic: %v", recovered))
-			}
-		}
-	}()
+	defer recoverOfficePanic("excel", &err)
 	defer func() {
 		addOfficeCleanupError(&err, "quit Excel", excel.call("Quit"))
 	}()
+	return exportWorkbook(ctx, excel, inputPath, outputPath)
+}
+
+func recoverOfficePanic(name string, err *error) {
+	if recovered := recover(); recovered != nil {
+		if cause, ok := recovered.(error); ok {
+			*err = errors.Join(*err, fmt.Errorf("%s automation panic: %w", name, cause))
+		} else {
+			*err = errors.Join(*err, fmt.Errorf("%s automation panic: %v", name, recovered))
+		}
+	}
+}
+
+func exportWorkbook(ctx context.Context, excel officeAutomationObject, inputPath, outputPath string) (err error) {
+	defer recoverOfficePanic("excel", &err)
 	if err := configureExcelSecurity(ctx, excel); err != nil {
 		return err
 	}

@@ -14,11 +14,16 @@ def reply(ok, error=""):
 
 def main():
     binary, profile = sys.argv[1:]
+    # Go's JSON encoder writes UTF-8 regardless of the Windows code page.
+    if os.name == "nt":
+        sys.stdin.reconfigure(encoding="utf-8")
     # Official LibreOffice tarball/DEB installations may ship their own uno.py.
     program = os.path.dirname(os.path.realpath(binary))
     if os.path.isfile(os.path.join(program, "uno.py")):
         sys.path.insert(0, program)
-        fundamental = os.path.join(program, "fundamentalrc")
+        fundamental = os.path.join(program, "fundamental.ini" if os.name == "nt" else "fundamentalrc")
+        if os.name == "nt":
+            dll_directory = os.add_dll_directory(program)
         if os.path.isfile(fundamental):
             os.environ["URE_BOOTSTRAP"] = Path(fundamental).as_uri()
     import uno
@@ -59,9 +64,9 @@ def main():
                 remote = resolver.resolve(
                     "uno:pipe,name=" + pipe + ";urp;StarOffice.ComponentContext")
                 break
-            except Exception:
+            except Exception as error:
                 if process.poll() is not None or time.monotonic() >= deadline:
-                    raise RuntimeError("LibreOffice UNO listener did not become ready")
+                    raise RuntimeError("LibreOffice UNO listener did not become ready: " + str(error))
                 time.sleep(0.05)
         desktop = remote.ServiceManager.createInstanceWithContext(
             "com.sun.star.frame.Desktop", remote)

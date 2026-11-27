@@ -28,9 +28,10 @@ type Converter struct {
 	session   conversionSession // accessed only while holding turn
 }
 
-// NewConverter starts a reusable LibreOffice session on Linux. It requires
-// Python 3 with compatible PyUNO bindings. Windows persistence is not yet
-// supported; use the package-level ConvertToPDF there.
+// NewConverter starts a reusable LibreOffice session on Linux or Windows.
+// LibreOffice requires Python 3 with compatible PyUNO bindings. On Windows
+// without LibreOffice, the converter creates private Word/Excel applications
+// on first use of each installed format.
 // ctx controls startup only. Call Close to release the session after use.
 func NewConverter(ctx context.Context) (*Converter, error) {
 	if ctx == nil {

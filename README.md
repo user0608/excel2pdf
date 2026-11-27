@@ -150,10 +150,10 @@ When cancellation is observed, the function returns no PDF path and attempts to
 remove its temporary files, even if the backend produced a PDF. Context errors
 remain inspectable with `errors.Is`, alongside any backend or cleanup errors.
 
-## Reusable converter (Linux / LibreOffice)
+## Reusable converter (Linux and Windows)
 
 The existing package-level `ConvertToPDF` still starts and stops Office for every
-file. For a batch, use a `Converter` to amortize LibreOffice startup:
+file. For a batch, use a `Converter` to amortize Office startup:
 
 ```go
 func convertBatch(ctx context.Context, inputs []string) (err error) {
@@ -181,13 +181,16 @@ This snippet uses `context`, `errors`, `os`, and `path/filepath`.
 
 ### Runtime requirements
 
-- This first persistent backend supports **LibreOffice on Linux only**. On
-  Windows, `NewConverter` returns `ErrPersistentConversionUnsupported`; the
-  existing package-level API continues to support LibreOffice, Word and Excel.
-- Python 3 and compatible **PyUNO** bindings are required for persistent sessions,
+- On Windows, `NewConverter` prefers LibreOffice and defaults to the `python.exe`
+  beside the detected LibreOffice executable. `EXCEL2PDF_PYTHON` overrides it.
+  If LibreOffice is absent, the constructor checks Word and Excel registrations.
+  At least one is required. Each converter creates its own application on first
+  use of that format and keeps it on a dedicated COM apartment thread. A request
+  for a missing application returns `ErrOfficeNotInstalled`.
+- Python 3 and compatible **PyUNO** bindings are required for persistent LibreOffice,
   not for the existing API. On Debian/Ubuntu, install `libreoffice-writer`,
   `libreoffice-calc`, and `python3-uno`.
-- The bridge uses `python3` from PATH. Set `EXCEL2PDF_PYTHON=/usr/bin/python3` to
+- On Linux the bridge uses `python3` from PATH. Set `EXCEL2PDF_PYTHON=/usr/bin/python3` to
   select the distro interpreter, particularly if PATH points to a virtualenv or
   `/usr/local` Python without PyUNO. The helper is embedded in the Go library;
   there is no separate script to deploy. Python runs in isolated mode: CWD,
@@ -202,9 +205,9 @@ This snippet uses `context`, `errors`, `os`, and `path/filepath`.
 
 ### Ownership, concurrency and cancellation
 
-- Each converter owns a Python bridge, LibreOffice process group and temporary
+- Each LibreOffice converter owns a Python bridge, process tree and temporary
   profile. A randomly named local UNO pipe is used, **not a listening TCP port**.
-- The constructor starts and connects the session, capped at 30 seconds or the
+- The constructor starts and connects LibreOffice, capped at 30 seconds or the
   caller's earlier deadline. Its context controls startup only. Always call
   `Close`, even if that context is subsequently canceled.
 - Calls on the **same converter** wait on a cancelable semaphore and convert one
@@ -213,19 +216,22 @@ This snippet uses `context`, `errors`, `os`, and `path/filepath`.
 - Different converters can work in parallel, including one converter per REST
   request/batch. Applications must limit their own CPU, memory and concurrency;
   this library does not create a global pool or limit pending callers.
-- Every document is opened hidden/read-only with macros disabled, automatic
+- With LibreOffice, every document is opened hidden/read-only with macros disabled, automatic
   updates disabled and interactive requests rejected, then closed after export.
   The profile is reused across that converter's documents, **not** across
   converters. This is resource separation, not a security sandbox.
 - A conversion error stops the owned session. The failing operation is not
   retried; the next valid call starts a new session. Failed conversion outputs
   are cleaned up. Successful PDFs and directories remain caller-owned.
-- Active cancellation kills the owned process group and waits for process/I/O
-  cleanup before returning. Cleanup can outlast the deadline. As with one-shot
-  conversion, detached descendants are not guaranteed to be terminated.
+- Active LibreOffice cancellation kills the owned Linux process group or Windows
+  Job Object and waits for cleanup. On Windows, the bridge joins its job before
+  it can spawn descendants. On Linux, detached descendants can escape the group.
+- With Word/Excel, each document is closed after export. Active cancellation is
+  checked between COM operations; a blocked COM call can delay cancellation and
+  `Close`. Cleanup calls `Quit` only on applications created by this converter.
 - `Close()` is concurrent-safe and idempotent: it wakes pending callers with
   `ErrConverterClosed`, cancels active work and waits for cleanup. An idle session
-  gets up to five seconds to shut down gracefully before forced termination.
+  using LibreOffice gets up to five seconds to shut down gracefully before forced termination.
   Check its returned error. Successful PDFs are not deleted by `Close`.
 
 The initial startup and first document of each type remain slower than warm
@@ -347,6 +353,16 @@ go test -tags=integration -run '^TestIntegrationLibreOffice' -count=1 -timeout=5
 
 To check interaction with an already-open desktop instance, run this suite while
 that instance is open. The tests themselves do not launch a GUI instance.
+
+For reusable LibreOffice sessions:
+
+```powershell
+$env:EXCEL2PDF_TEST_PERSISTENT = '1'
+go test -tags=integration -run '^TestIntegrationPersistent' -count=1 -timeout=5m -v .
+```
+
+The persistent Microsoft Office test also requires both `EXCEL2PDF_TEST_WORD=1`
+and `EXCEL2PDF_TEST_EXCEL=1`; it selects COM directly even with LibreOffice installed.
 
 ### Real Excel and Word integration (Windows only)
 

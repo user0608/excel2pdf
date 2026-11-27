@@ -33,19 +33,26 @@ func convertWithMicrosoftOffice(ctx context.Context, inputPath, pdfFilePath, pro
 	}
 	defer ole.CoUninitialize()
 
+	application, err := createOfficeApplication(programID)
+	if err != nil {
+		return err
+	}
+	defer application.dispatch.Release()
+	return export(ctx, application, inputPath, pdfFilePath)
+}
+
+func createOfficeApplication(programID string) (*comOfficeObject, error) {
 	unknown, err := oleutil.CreateObject(programID)
 	if err != nil {
-		return fmt.Errorf("create %s object: %w", programID, err)
+		return nil, fmt.Errorf("create %s object: %w", programID, err)
 	}
 	defer unknown.Release()
 
 	application, err := unknown.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
-		return fmt.Errorf("query %s interface: %w", programID, err)
+		return nil, fmt.Errorf("query %s interface: %w", programID, err)
 	}
-	defer application.Release()
-
-	return export(ctx, &comOfficeObject{dispatch: application}, inputPath, pdfFilePath)
+	return &comOfficeObject{dispatch: application}, nil
 }
 
 func officeCOMInitialized(err error) bool {

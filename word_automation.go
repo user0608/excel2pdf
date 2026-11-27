@@ -2,23 +2,19 @@ package excel2pdf
 
 import (
 	"context"
-	"errors"
 	"fmt"
 )
 
 func exportWordPDF(ctx context.Context, word officeAutomationObject, inputPath, outputPath string) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			if panicErr, ok := recovered.(error); ok {
-				err = errors.Join(err, fmt.Errorf("word automation panic: %w", panicErr))
-			} else {
-				err = errors.Join(err, fmt.Errorf("word automation panic: %v", recovered))
-			}
-		}
-	}()
+	defer recoverOfficePanic("word", &err)
 	defer func() {
 		addOfficeCleanupError(&err, "quit Word", word.call("Quit", 0)) // wdDoNotSaveChanges
 	}()
+	return exportDocument(ctx, word, inputPath, outputPath)
+}
+
+func exportDocument(ctx context.Context, word officeAutomationObject, inputPath, outputPath string) (err error) {
+	defer recoverOfficePanic("word", &err)
 	for _, property := range []struct {
 		name  string
 		value any
