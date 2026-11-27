@@ -16,7 +16,11 @@ func findLibreOfficeBinPath() (string, error) {
 	if !errors.Is(err, ErrLibreofficeNotInstalled) {
 		return path, err
 	}
-	return findLibreOfficeInRegistry(readOfficeRegistryString, readOfficeRegistrySubkeys)
+	path, err = findLibreOfficeInRegistry(readOfficeRegistryString, readOfficeRegistrySubkeys)
+	if !errors.Is(err, ErrLibreofficeNotInstalled) {
+		return path, err
+	}
+	return findLibreOfficeInStandardDirectories(os.Getenv)
 }
 
 func findLibreOfficeInRegistry(read officeRegistryStringReader, subkeys officeRegistrySubkeysReader) (string, error) {
@@ -24,7 +28,7 @@ func findLibreOfficeInRegistry(read officeRegistryStringReader, subkeys officeRe
 	for _, location := range officeRegistryLocations() {
 		value, err := read(location.root, `SOFTWARE\LibreOffice\UNO\InstallPath`, "", location.view)
 		if err != nil {
-			lookupErrors = append(lookupErrors, err)
+			lookupErrors = append(lookupErrors, fmt.Errorf("read LibreOffice UNO InstallPath (root=%v, view=%d): %w", location.root, location.view, err))
 		} else if path, err := resolveLibreOfficeInstallation(value); err != nil {
 			lookupErrors = append(lookupErrors, err)
 		} else if path != "" {
@@ -50,7 +54,7 @@ func findLibreOfficeRegistryVersion(location officeRegistryLocation, keyPath str
 	var lookupErrors []error
 	value, err := read(location.root, keyPath, "Path", location.view)
 	if err != nil {
-		lookupErrors = append(lookupErrors, err)
+		lookupErrors = append(lookupErrors, fmt.Errorf("read LibreOffice registry Path at %q (root=%v, view=%d): %w", keyPath, location.root, location.view, err))
 	} else if path, err := resolveLibreOfficeInstallation(value); err != nil {
 		lookupErrors = append(lookupErrors, err)
 	} else if path != "" {
@@ -58,7 +62,7 @@ func findLibreOfficeRegistryVersion(location officeRegistryLocation, keyPath str
 	}
 	names, err := subkeys(location.root, keyPath, location.view)
 	if err != nil {
-		lookupErrors = append(lookupErrors, err)
+		lookupErrors = append(lookupErrors, fmt.Errorf("list LibreOffice registry keys at %q (root=%v, view=%d): %w", keyPath, location.root, location.view, err))
 	}
 	for _, name := range names {
 		path, err := findLibreOfficeRegistryVersion(location, filepath.Join(keyPath, name), depth+1, read, subkeys)

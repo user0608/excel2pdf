@@ -43,6 +43,103 @@ func TestLibreOfficeOverride(t *testing.T) {
 	}
 }
 
+func TestLibreOfficePath(t *testing.T) {
+	executable := writeOfficeTestExecutable(t, t.TempDir(), "configured office")
+	t.Setenv("LIBREOFFICE_PATH", executable)
+	if path, err := LibreOfficePath(); path != executable || err != nil {
+		t.Fatalf("LibreOfficePath = (%q, %v), want %q", path, err, executable)
+	}
+	// Detection must not cache an earlier environment or ignore invalid overrides.
+	t.Setenv("LIBREOFFICE_PATH", filepath.Join(t.TempDir(), "missing.exe"))
+	if path, err := LibreOfficePath(); path != "" || err == nil || errors.Is(err, ErrLibreofficeNotInstalled) {
+		t.Fatalf("invalid override = (%q, %v)", path, err)
+	}
+}
+
+func TestFindLibreOfficeInStandardDirectories(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name        string
+		variable    string
+		executables []string
+		want        string
+	}{
+		{name: "native 64 bit", variable: "ProgramW6432", executables: []string{"soffice.com"}, want: "soffice.com"},
+		{name: "program files", variable: "ProgramFiles", executables: []string{"soffice.exe"}, want: "soffice.exe"},
+		{name: "32 bit", variable: "ProgramFiles(x86)", executables: []string{"soffice.exe"}, want: "soffice.exe"},
+		{name: "prefer console executable", variable: "ProgramFiles", executables: []string{"soffice.exe", "soffice.com"}, want: "soffice.com"},
+		{name: "missing executable", variable: "ProgramFiles"},
+		{name: "unset roots"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			dir := filepath.Join(root, "LibreOffice", "program")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range tt.executables {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte("not executed"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			getenv := func(name string) string {
+				if name == tt.variable {
+					return root
+				}
+				return ""
+			}
+			path, err := findLibreOfficeInStandardDirectories(getenv)
+			if tt.want == "" {
+				if path != "" || !errors.Is(err, ErrLibreofficeNotInstalled) {
+					t.Fatalf("absent installation = (%q, %v)", path, err)
+				}
+			} else if want := filepath.Join(dir, tt.want); path != want || err != nil {
+				t.Fatalf("standard lookup = (%q, %v), want %q", path, err, want)
+			}
+		})
+	}
+}
+
+func TestStandardDirectoriesOrderAndErrors(t *testing.T) {
+	t.Parallel()
+	first, second := t.TempDir(), t.TempDir()
+	for _, root := range []string{first, second} {
+		dir := filepath.Join(root, "LibreOffice", "program")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "soffice.exe"), []byte("not executed"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	getenv := func(name string) string {
+		if name == "ProgramW6432" {
+			return first
+		}
+		return second
+	}
+	if path, err := findLibreOfficeInStandardDirectories(getenv); path != filepath.Join(first, "LibreOffice", "program", "soffice.exe") || err != nil {
+		t.Fatalf("directory precedence = (%q, %v)", path, err)
+	}
+	if path, err := findLibreOfficeInStandardDirectories(func(string) string { return "relative" }); path != "" || !errors.Is(err, ErrLibreofficeNotInstalled) {
+		t.Fatalf("relative roots = (%q, %v)", path, err)
+	}
+	// A directory posing as an executable is a lookup failure, not absence.
+	if err := os.Mkdir(filepath.Join(first, "LibreOffice", "program", "soffice.com"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(first, "LibreOffice", "program", "soffice.exe")); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := findLibreOfficeInStandardDirectories(getenv); path != filepath.Join(second, "LibreOffice", "program", "soffice.exe") || err != nil {
+		t.Fatalf("valid alternative after invalid candidate = (%q, %v)", path, err)
+	}
+	if path, err := findLibreOfficeInStandardDirectories(func(string) string { return first }); path != "" || err == nil || errors.Is(err, ErrLibreofficeNotInstalled) {
+		t.Fatalf("invalid candidate = (%q, %v)", path, err)
+	}
+}
+
 func TestFindLibreOfficeOnPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)

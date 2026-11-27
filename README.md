@@ -15,7 +15,11 @@ the minimum version is tested for API compatibility, not recommended for securit
   `libreoffice24.8`. If absent, it checks LibreOffice's UNO installation and
   versioned registry keys for the current user and machine, in both 64-bit and
   32-bit views. Registered directories are resolved to `soffice.com` or
-  `soffice.exe`, directly or under `program`; stale entries are skipped.
+   `soffice.exe`, directly or under `program`; stale entries are skipped.
+  If neither PATH nor the registry contains an installation, it checks
+  `%ProgramW6432%`, `%ProgramFiles%`, then `%ProgramFiles(x86)%`, under
+  `LibreOffice\program`, preferring `soffice.com` to `soffice.exe` in each folder.
+  Unset or relative directory variables are ignored; no drive letter is assumed.
   Excel (`Excel.Application`) is selected for `.xlsx`, or Word (`Word.Application`)
   for `.docx`, only if LibreOffice is absent. COM ProgID and local-server
   registrations are checked in the same scopes and views. Having Excel installed
@@ -36,6 +40,23 @@ engine after a document-specific failure. Absence can be inspected using
 `errors.Is(err, excel2pdf.ErrLibreofficeNotInstalled)` on Linux, or
 `errors.Is(err, excel2pdf.ErrOfficeNotInstalled)` when neither LibreOffice nor the
 Microsoft application required for the input format is found on Windows.
+
+To inspect the LibreOffice executable that would be selected:
+
+```go
+path, err := excel2pdf.LibreOfficePath()
+if err != nil {
+    return err
+}
+fmt.Println("LibreOffice:", path)
+```
+
+This uses the same detection as conversion without launching LibreOffice. It
+returns an absolute path, does not cache the result, and does not verify the
+version. A later conversion detects again, so keep the environment unchanged.
+The library does not print discovery logs automatically. Invalid explicit paths
+and lookup/permission errors are returned, not treated as absence or a reason to
+fall back to Microsoft Office.
 
 ## Conversion and temporary files
 
