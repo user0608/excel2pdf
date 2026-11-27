@@ -126,7 +126,7 @@ pdfFilePath, err := excel2pdf.ConvertToPDF(ctx, "file.xlsx")
 
 The snippet requires the `context` and `time` packages. There is **no default
 timeout**; use `context.Background()` if you deliberately do not want a deadline.
-Requests are not queued: another active conversion (of either format) in the same
+For the package-level function, requests are not queued: another active conversion (of either format) in the same
 Go process causes `ErrConversionInProgress`. A nil context is rejected with an
 error. The previous Excel-specific conversion functions have been removed.
 
@@ -149,6 +149,88 @@ error. The previous Excel-specific conversion functions have been removed.
 When cancellation is observed, the function returns no PDF path and attempts to
 remove its temporary files, even if the backend produced a PDF. Context errors
 remain inspectable with `errors.Is`, alongside any backend or cleanup errors.
+
+## Reusable converter (Linux / LibreOffice)
+
+The existing package-level `ConvertToPDF` still starts and stops Office for every
+file. For a batch, use a `Converter` to amortize LibreOffice startup:
+
+```go
+func convertBatch(ctx context.Context, inputs []string) (err error) {
+    converter, err := excel2pdf.NewConverter(ctx)
+    if err != nil {
+        return err
+    }
+    defer func() { err = errors.Join(err, converter.Close()) }()
+
+    for _, input := range inputs {
+        pdf, err := converter.ConvertToPDF(ctx, input)
+        if err != nil {
+            return err
+        }
+        // Consume or copy the PDF here before removing its exclusive directory.
+        if err := os.RemoveAll(filepath.Dir(pdf)); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+```
+
+This snippet uses `context`, `errors`, `os`, and `path/filepath`.
+
+### Runtime requirements
+
+- This first persistent backend supports **LibreOffice on Linux only**. On
+  Windows, `NewConverter` returns `ErrPersistentConversionUnsupported`; the
+  existing package-level API continues to support LibreOffice, Word and Excel.
+- Python 3 and compatible **PyUNO** bindings are required for persistent sessions,
+  not for the existing API. On Debian/Ubuntu, install `libreoffice-writer`,
+  `libreoffice-calc`, and `python3-uno`.
+- The bridge uses `python3` from PATH. Set `EXCEL2PDF_PYTHON=/usr/bin/python3` to
+  select the distro interpreter, particularly if PATH points to a virtualenv or
+  `/usr/local` Python without PyUNO. The helper is embedded in the Go library;
+  there is no separate script to deploy. Python runs in isolated mode: CWD,
+  user-site packages and `PYTHONPATH` are excluded. Install bindings into the
+  selected interpreter's system packages or use bindings beside LibreOffice.
+- Discovery of LibreOffice is unchanged (`LIBREOFFICE_PATH` has priority).
+  Official installations that ship `uno.py` beside the resolved executable are
+  supported when those bindings are compatible with the selected Python.
+  Missing/incompatible bindings fail at construction; there is no silent
+  fallback to a nonpersistent engine. Executable paths are resolved at
+  construction; restarts of that converter use the same paths.
+
+### Ownership, concurrency and cancellation
+
+- Each converter owns a Python bridge, LibreOffice process group and temporary
+  profile. A randomly named local UNO pipe is used, **not a listening TCP port**.
+- The constructor starts and connects the session, capped at 30 seconds or the
+  caller's earlier deadline. Its context controls startup only. Always call
+  `Close`, even if that context is subsequently canceled.
+- Calls on the **same converter** wait on a cancelable semaphore and convert one
+  document at a time. Ordering is not strictly FIFO. Waiting cancellation does
+  not interrupt another conversion. There is no shared global conversion lock.
+- Different converters can work in parallel, including one converter per REST
+  request/batch. Applications must limit their own CPU, memory and concurrency;
+  this library does not create a global pool or limit pending callers.
+- Every document is opened hidden/read-only with macros disabled, automatic
+  updates disabled and interactive requests rejected, then closed after export.
+  The profile is reused across that converter's documents, **not** across
+  converters. This is resource separation, not a security sandbox.
+- A conversion error stops the owned session. The failing operation is not
+  retried; the next valid call starts a new session. Failed conversion outputs
+  are cleaned up. Successful PDFs and directories remain caller-owned.
+- Active cancellation kills the owned process group and waits for process/I/O
+  cleanup before returning. Cleanup can outlast the deadline. As with one-shot
+  conversion, detached descendants are not guaranteed to be terminated.
+- `Close()` is concurrent-safe and idempotent: it wakes pending callers with
+  `ErrConverterClosed`, cancels active work and waits for cleanup. An idle session
+  gets up to five seconds to shut down gracefully before forced termination.
+  Check its returned error. Successful PDFs are not deleted by `Close`.
+
+The initial startup and first document of each type remain slower than warm
+conversions. Measure representative files on your deployment; this API changes
+process lifetime, not document layout or PDF pagination.
 
 ## Document security and deployment
 
@@ -241,6 +323,20 @@ Set `LIBREOFFICE_PATH` if the executable is not discovered automatically. Withou
 invalid explicit configuration still fails. With the variable set, absence fails
 the suite instead of producing a misleading green result.
 
+For real persistent-session tests on Linux, with PyUNO installed:
+
+```sh
+EXCEL2PDF_TEST_PERSISTENT=1 EXCEL2PDF_PYTHON=/usr/bin/python3 \
+  go test -race -tags=integration -run '^TestIntegrationPersistent' -count=1 -timeout=5m -v .
+```
+
+These tests check sequential DOCX/XLSX reuse, source preservation, PDF headers,
+independent simultaneous instances, process/profile cleanup and recovery after a
+bridge crash or active timeout. They log startup, warm conversion and one-shot timings on minimal
+fixtures; these are diagnostic samples, not statistically rigorous benchmarks or
+a guarantee of performance/visual fidelity. Additional unit tests use controlled
+subprocesses to exercise startup failures, active cancellation and diagnostics.
+
 On Windows PowerShell, with LibreOffice installed:
 
 ```powershell
@@ -293,8 +389,9 @@ Office instances by name.
   Windows 386/amd64/arm64. Cross-compilation does **not** execute those tests.
 - Linting and vulnerability reachability checks for Linux and Windows targets.
 - Real LibreOffice integration on Linux when manually dispatched with
-  `libreoffice_integration` enabled. That job installs Calc, Writer and fonts and
-  requires the engine to be present. Excel/Word are not launched by hosted CI.
+  `libreoffice_integration` enabled. That job installs Calc, Writer, PyUNO and fonts
+  and requires the engine to be present, including persistent-session checks.
+  Excel/Word are not launched by hosted CI.
 
 Coverage is retained as an artifact, not used as an arbitrary pass/fail threshold.
 The workflow uses read-only repository permissions and does not publish releases

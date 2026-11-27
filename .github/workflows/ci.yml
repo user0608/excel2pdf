@@ -138,6 +138,8 @@ jobs:
     timeout-minutes: 15
     env:
       EXCEL2PDF_REQUIRE_LIBREOFFICE: '1'
+      EXCEL2PDF_TEST_PERSISTENT: '1'
+      EXCEL2PDF_PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -145,8 +147,8 @@ jobs:
       - uses: actions/setup-go@v7.1.0
         with:
           go-version: stable
-      - name: Install LibreOffice Calc, Writer and fonts
+      - name: Install LibreOffice Calc, Writer, PyUNO and fonts
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libreoffice-calc libreoffice-writer fonts-dejavu-core
-      - run: go test -tags=integration -run '^TestIntegrationLibreOffice' -count=1 -timeout=5m -v .
+          sudo apt-get install --yes --no-install-recommends libreoffice-calc libreoffice-writer python3-uno fonts-dejavu-core
+      - run: go test -race -tags=integration -run '^TestIntegration(LibreOffice|Persistent)' -count=1 -timeout=5m -v .

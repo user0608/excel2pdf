@@ -264,6 +264,9 @@ func TestSanitizeLibreOfficeDiagnostic(t *testing.T) {
 	if len(large) > libreOfficeOutputLimit+64 || !strings.Contains(large, "output truncated") {
 		t.Errorf("sanitized diagnostics are unbounded: %d bytes", len(large))
 	}
+	if got := sanitizeLibreOfficeDiagnostic("uno.py: missing module.", "", "", ""); got != "uno.py: missing module." {
+		t.Errorf("startup diagnostic without document paths = %q", got)
+	}
 }
 
 func libreOfficeHelperCommand(t *testing.T, mode string, profilePath *string) func(context.Context, string, ...string) *exec.Cmd {

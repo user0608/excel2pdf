@@ -63,6 +63,10 @@ func runLibreOfficeConversion(ctx context.Context, binaryPath, inputPath, output
 }
 
 func sanitizeLibreOfficeDiagnostic(text, inputPath, outputPath, profileDir string) string {
+	var outputDir string
+	if outputPath != "" {
+		outputDir = filepath.Dir(outputPath)
+	}
 	for _, target := range []struct {
 		path  string
 		label string
@@ -70,7 +74,7 @@ func sanitizeLibreOfficeDiagnostic(text, inputPath, outputPath, profileDir strin
 		{inputPath, "[input]"},
 		{outputPath, "[output]"},
 		{profileDir, "[profile]"},
-		{filepath.Dir(outputPath), "[temporary-directory]"},
+		{outputDir, "[temporary-directory]"},
 	} {
 		if target.path == "" {
 			continue
