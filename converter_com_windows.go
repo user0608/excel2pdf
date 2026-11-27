@@ -9,10 +9,12 @@ import (
 )
 
 type microsoftSession struct {
-	requests  chan func()
-	done      chan error
-	installed map[documentKind]bool
-	apps      map[documentKind]*comOfficeObject // only accessed on the apartment thread
+	requests      chan func()
+	done          chan error
+	installed     map[documentKind]bool
+	apps          map[documentKind]*comOfficeObject // only accessed on the apartment thread
+	startFallback func(context.Context) (conversionSession, error)
+	fallback      conversionSession // accessed only while the converter holds its turn
 }
 
 func microsoftSessionFactory() (func(context.Context) (conversionSession, error), error) {
@@ -30,8 +32,9 @@ func microsoftSessionFactory() (func(context.Context) (conversionSession, error)
 	return func(ctx context.Context) (conversionSession, error) {
 		s := &microsoftSession{
 			requests: make(chan func()), done: make(chan error, 1),
-			installed: map[documentKind]bool{spreadsheetDocument: excel, wordDocument: word},
-			apps:      make(map[documentKind]*comOfficeObject),
+			installed:     map[documentKind]bool{spreadsheetDocument: excel, wordDocument: word},
+			apps:          make(map[documentKind]*comOfficeObject),
+			startFallback: startWindowsLibreOffice,
 		}
 		ready := make(chan error, 1)
 		go s.run(ready)
@@ -75,7 +78,20 @@ func quitOfficeApplication(kind documentKind, app *comOfficeObject) (err error) 
 }
 
 func (s *microsoftSession) convert(ctx context.Context, input, output string) error {
-	return s.invoke(ctx, func() error { return s.export(ctx, input, output) })
+	kind, err := documentKindForPath(input)
+	if err != nil {
+		return err
+	}
+	if s.installed[kind] {
+		return s.invoke(ctx, func() error { return s.export(ctx, kind, input, output) })
+	}
+	if s.fallback == nil {
+		s.fallback, err = s.startFallback(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	return s.fallback.convert(ctx, input, output)
 }
 
 func (s *microsoftSession) invoke(ctx context.Context, call func() error) error {
@@ -90,17 +106,10 @@ func (s *microsoftSession) invoke(ctx context.Context, call func() error) error 
 	}
 }
 
-func (s *microsoftSession) export(ctx context.Context, input, output string) (err error) {
+func (s *microsoftSession) export(ctx context.Context, kind documentKind, input, output string) (err error) {
 	defer recoverOfficePanic("office", &err)
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	kind, err := documentKindForPath(input)
-	if err != nil {
-		return err
-	}
-	if !s.installed[kind] {
-		return ErrOfficeNotInstalled
 	}
 	program, export := "Excel.Application", exportWorkbook
 	if kind == wordDocument {
@@ -119,5 +128,9 @@ func (s *microsoftSession) export(ctx context.Context, input, output string) (er
 
 func (s *microsoftSession) close() error {
 	close(s.requests)
-	return <-s.done
+	var err error
+	if s.fallback != nil {
+		err = s.fallback.close()
+	}
+	return errors.Join(err, <-s.done)
 }

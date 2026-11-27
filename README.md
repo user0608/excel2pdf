@@ -181,12 +181,15 @@ This snippet uses `context`, `errors`, `os`, and `path/filepath`.
 
 ### Runtime requirements
 
-- On Windows, `NewConverter` prefers LibreOffice and defaults to the `python.exe`
-  beside the detected LibreOffice executable. `EXCEL2PDF_PYTHON` overrides it.
-  If LibreOffice is absent, the constructor checks Word and Excel registrations.
-  At least one is required. Each converter creates its own application on first
-  use of that format and keeps it on a dedicated COM apartment thread. A request
-  for a missing application returns `ErrOfficeNotInstalled`.
+- On Windows, `NewConverter` prefers Word for DOCX and Excel for XLSX. Each
+  converter creates its own application on first use. If only one application
+  is installed, the other format uses a reusable LibreOffice session started
+  on demand. If neither is installed, the constructor starts LibreOffice.
+  An explicit `LIBREOFFICE_PATH` selects LibreOffice for both formats. The
+  package-level `ConvertToPDF` still prefers LibreOffice. A conversion error
+  does not trigger a retry with another engine.
+- Persistent LibreOffice on Windows uses the `python.exe` beside its executable
+  unless `EXCEL2PDF_PYTHON` is set.
 - Python 3 and compatible **PyUNO** bindings are required for persistent LibreOffice,
   not for the existing API. On Debian/Ubuntu, install `libreoffice-writer`,
   `libreoffice-calc`, and `python3-uno`.
@@ -199,9 +202,8 @@ This snippet uses `context`, `errors`, `os`, and `path/filepath`.
 - Discovery of LibreOffice is unchanged (`LIBREOFFICE_PATH` has priority).
   Official installations that ship `uno.py` beside the resolved executable are
   supported when those bindings are compatible with the selected Python.
-  Missing/incompatible bindings fail at construction; there is no silent
-  fallback to a nonpersistent engine. Executable paths are resolved at
-  construction; restarts of that converter use the same paths.
+  Missing/incompatible bindings fail when starting the LibreOffice session;
+  there is no silent fallback to a nonpersistent engine.
 
 ### Ownership, concurrency and cancellation
 
@@ -361,8 +363,8 @@ $env:EXCEL2PDF_TEST_PERSISTENT = '1'
 go test -tags=integration -run '^TestIntegrationPersistent' -count=1 -timeout=5m -v .
 ```
 
-The persistent Microsoft Office tests select COM directly even with LibreOffice
-installed. Enable Word with `EXCEL2PDF_TEST_WORD=1` or Excel with
+The persistent Microsoft Office tests use default Windows engine selection.
+Enable Word with `EXCEL2PDF_TEST_WORD=1` or Excel with
 `EXCEL2PDF_TEST_EXCEL=1`. Each application's test runs independently and checks
 session reuse, recovery after an open failure, and isolation between converters.
 
@@ -396,6 +398,24 @@ The context timeout still cannot interrupt a blocked COM call. The test runner's
 outer timeout can stop the Go test process but may leave Excel or Word running; inspect
 the dedicated test environment afterward. These tests never terminate unrelated
 Office instances by name.
+
+To test **process ownership** separately from the production COM backend, run
+the following on an interactive Windows test desktop:
+
+```powershell
+$env:EXCEL2PDF_TEST_OFFICE_OWNERSHIP = '1'
+$env:EXCEL2PDF_TEST_WORD = '1'
+$env:EXCEL2PDF_TEST_EXCEL = '1'
+go test -tags=integration -run '^TestIntegrationOfficeProcessOwnership$' -count=1 -timeout=4m -v .
+```
+
+This integration probe launches the registered Office executable directly
+inside a test worker's Windows Job Object. It attaches COM through a document
+window of that exact process. It suspends that window's thread to block an
+export, terminates the job and waits on the Office process handle. It checks
+that another worker can still export and that a fresh worker can produce a
+PDF. Word and Excel can be enabled independently. This probe does not change
+`NewConverter` or give the existing COM backend a hard timeout.
 
 ### GitHub Actions
 
