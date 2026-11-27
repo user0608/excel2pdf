@@ -40,17 +40,16 @@ func TestIntegrationPersistentMicrosoftOffice(t *testing.T) {
 
 func testPersistentApplication(t *testing.T, input string, kind documentKind) {
 	t.Helper()
-	// Exercise default discovery via the public constructor even when the
-	// surrounding test environment explicitly selects LibreOffice.
-	t.Setenv("LIBREOFFICE_PATH", "")
-	if err := os.Unsetenv("LIBREOFFICE_PATH"); err != nil {
+	// Select COM directly so these tests also run with LibreOffice installed.
+	start, err := microsoftSessionFactory()
+	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	instances := make([]*Converter, 2)
 	for i := range instances {
-		c, err := NewConverter(ctx)
+		c, err := newConverter(ctx, start)
 		if err != nil {
 			t.Fatal(err)
 		}

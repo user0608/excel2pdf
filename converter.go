@@ -28,9 +28,10 @@ type Converter struct {
 	session   conversionSession // accessed only while holding turn
 }
 
-// NewConverter prefers Word for DOCX and Excel for XLSX on Windows. It uses
-// LibreOffice on Linux, for missing Windows applications, or when explicitly
-// selected via LIBREOFFICE_PATH. LibreOffice requires compatible Python/PyUNO.
+// NewConverter prefers LibreOffice on Linux and Windows, requiring compatible
+// Python/PyUNO. On Windows, Word/Excel are used only when LibreOffice is absent.
+// An invalid explicit LIBREOFFICE_PATH or a LibreOffice startup error is returned
+// without falling back to Microsoft Office.
 // ctx controls startup only. Call Close to release the session after use.
 func NewConverter(ctx context.Context) (*Converter, error) {
 	if ctx == nil {

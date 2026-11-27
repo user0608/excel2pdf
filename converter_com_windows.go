@@ -9,12 +9,10 @@ import (
 )
 
 type microsoftSession struct {
-	requests      chan func()
-	done          chan error
-	installed     map[documentKind]bool
-	apps          map[documentKind]*comOfficeObject // only accessed on the apartment thread
-	startFallback func(context.Context) (conversionSession, error)
-	fallback      conversionSession // accessed only while the converter holds its turn
+	requests  chan func()
+	done      chan error
+	installed map[documentKind]bool
+	apps      map[documentKind]*comOfficeObject // only accessed on the apartment thread
 }
 
 func microsoftSessionFactory() (func(context.Context) (conversionSession, error), error) {
@@ -32,9 +30,8 @@ func microsoftSessionFactory() (func(context.Context) (conversionSession, error)
 	return func(ctx context.Context) (conversionSession, error) {
 		s := &microsoftSession{
 			requests: make(chan func()), done: make(chan error, 1),
-			installed:     map[documentKind]bool{spreadsheetDocument: excel, wordDocument: word},
-			apps:          make(map[documentKind]*comOfficeObject),
-			startFallback: startWindowsLibreOffice,
+			installed: map[documentKind]bool{spreadsheetDocument: excel, wordDocument: word},
+			apps:      make(map[documentKind]*comOfficeObject),
 		}
 		ready := make(chan error, 1)
 		go s.run(ready)
@@ -85,13 +82,7 @@ func (s *microsoftSession) convert(ctx context.Context, input, output string) er
 	if s.installed[kind] {
 		return s.invoke(ctx, func() error { return s.export(ctx, kind, input, output) })
 	}
-	if s.fallback == nil {
-		s.fallback, err = s.startFallback(ctx)
-		if err != nil {
-			return err
-		}
-	}
-	return s.fallback.convert(ctx, input, output)
+	return ErrOfficeNotInstalled
 }
 
 func (s *microsoftSession) invoke(ctx context.Context, call func() error) error {
@@ -128,9 +119,5 @@ func (s *microsoftSession) export(ctx context.Context, kind documentKind, input,
 
 func (s *microsoftSession) close() error {
 	close(s.requests)
-	var err error
-	if s.fallback != nil {
-		err = s.fallback.close()
-	}
-	return errors.Join(err, <-s.done)
+	return <-s.done
 }

@@ -181,13 +181,13 @@ This snippet uses `context`, `errors`, `os`, and `path/filepath`.
 
 ### Runtime requirements
 
-- On Windows, `NewConverter` prefers Word for DOCX and Excel for XLSX. Each
-  converter creates its own application on first use. If only one application
-  is installed, the other format uses a reusable LibreOffice session started
-  on demand. If neither is installed, the constructor starts LibreOffice.
-  An explicit `LIBREOFFICE_PATH` selects LibreOffice for both formats. The
-  package-level `ConvertToPDF` still prefers LibreOffice. A conversion error
-  does not trigger a retry with another engine.
+- On Windows, `NewConverter` prefers LibreOffice for both formats, just like the
+  package-level `ConvertToPDF`. Only when LibreOffice is absent does it use Word
+  for DOCX and Excel for XLSX, creating each application on first use. At least
+  one Microsoft application must be installed; a request for a missing one
+  returns `ErrOfficeNotInstalled`. `LIBREOFFICE_PATH` overrides discovery.
+  Invalid configuration, startup failures and conversion errors do not trigger
+  a retry with another engine.
 - Persistent LibreOffice on Windows uses the `python.exe` beside its executable
   unless `EXCEL2PDF_PYTHON` is set.
 - Python 3 and compatible **PyUNO** bindings are required for persistent LibreOffice,
@@ -363,7 +363,7 @@ $env:EXCEL2PDF_TEST_PERSISTENT = '1'
 go test -tags=integration -run '^TestIntegrationPersistent' -count=1 -timeout=5m -v .
 ```
 
-The persistent Microsoft Office tests use default Windows engine selection.
+The persistent Microsoft Office tests select COM directly even with LibreOffice installed.
 Enable Word with `EXCEL2PDF_TEST_WORD=1` or Excel with
 `EXCEL2PDF_TEST_EXCEL=1`. Each application's test runs independently and checks
 session reuse, recovery after an open failure, and isolation between converters.
