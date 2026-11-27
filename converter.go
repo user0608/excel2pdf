@@ -94,15 +94,15 @@ func (c *Converter) ConvertToPDF(ctx context.Context, inputPath string) (string,
 	stop := context.AfterFunc(c.lifetime, cancel)
 	defer stop()
 	defer cancel()
-	pdf, err := convertDocumentFile(operation, inputPath, func(ctx context.Context, input, output string) error {
+	pdf, err := withPDFOutput(operation, inputPath, func(input, output string) error {
 		if c.session == nil {
 			var err error
-			c.session, err = c.start(ctx)
+			c.session, err = c.start(operation)
 			if err != nil {
 				return err
 			}
 		}
-		if err := c.session.convert(ctx, input, output); err != nil {
+		if err := convertAndValidate(operation, input, output, c.session.convert); err != nil {
 			cleanupErr := c.session.close()
 			c.session = nil
 			return errors.Join(err, cleanupErr)

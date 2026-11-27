@@ -180,6 +180,49 @@ func TestConverterFailureAndRestart(t *testing.T) {
 	}
 }
 
+func TestConverterRestartsAfterInvalidOutput(t *testing.T) {
+	for name, write := range map[string]func(string) error{
+		"missing":   func(string) error { return nil },
+		"empty":     func(path string) error { return os.WriteFile(path, nil, 0600) },
+		"directory": func(path string) error { return os.Mkdir(path, 0700) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var dir string
+			first := &fakeConversionSession{convertFunc: func(_ context.Context, _, output string) error {
+				dir = filepath.Dir(output)
+				return write(output)
+			}}
+			next := &fakeConversionSession{}
+			starts := 0
+			c := testConverter(t, func(context.Context) (conversionSession, error) {
+				starts++
+				if starts == 1 {
+					return first, nil
+				}
+				return next, nil
+			})
+			input := writeExcelTestInput(t, "input.docx")
+			if pdf, err := c.ConvertToPDF(context.Background(), input); err == nil || pdf != "" {
+				t.Fatalf("invalid output = (%q, %v)", pdf, err)
+			}
+			if first.closes.Load() != 1 || c.session != nil || starts != 1 {
+				t.Fatal("invalid output did not discard exactly the active session")
+			}
+			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) || dir == "" {
+				t.Fatalf("failed output directory %q: %v", dir, err)
+			}
+			pdf, err := c.ConvertToPDF(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			removeExcelTestOutput(t, pdf)
+			if c.session != next || starts != 2 {
+				t.Fatal("expected a fresh session")
+			}
+		})
+	}
+}
+
 func TestConverterCloseCancelsActiveAndWaitingCalls(t *testing.T) {
 	t.Parallel()
 	entered := make(chan struct{})

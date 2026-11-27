@@ -361,8 +361,10 @@ $env:EXCEL2PDF_TEST_PERSISTENT = '1'
 go test -tags=integration -run '^TestIntegrationPersistent' -count=1 -timeout=5m -v .
 ```
 
-The persistent Microsoft Office test also requires both `EXCEL2PDF_TEST_WORD=1`
-and `EXCEL2PDF_TEST_EXCEL=1`; it selects COM directly even with LibreOffice installed.
+The persistent Microsoft Office tests select COM directly even with LibreOffice
+installed. Enable Word with `EXCEL2PDF_TEST_WORD=1` or Excel with
+`EXCEL2PDF_TEST_EXCEL=1`. Each application's test runs independently and checks
+session reuse, recovery after an open failure, and isolation between converters.
 
 ### Real Excel and Word integration (Windows only)
 

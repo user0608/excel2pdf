@@ -75,11 +75,15 @@ func quitOfficeApplication(kind documentKind, app *comOfficeObject) (err error) 
 }
 
 func (s *microsoftSession) convert(ctx context.Context, input, output string) error {
+	return s.invoke(ctx, func() error { return s.export(ctx, input, output) })
+}
+
+func (s *microsoftSession) invoke(ctx context.Context, call func() error) error {
 	result := make(chan error, 1)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case s.requests <- func() { result <- s.export(ctx, input, output) }:
+	case s.requests <- func() { result <- call() }:
 		// Join even on cancellation: COM must release the document before
 		// the caller can clean up or start another conversion.
 		return <-result

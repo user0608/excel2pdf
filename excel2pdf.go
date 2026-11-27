@@ -37,6 +37,12 @@ func ConvertToPDF(ctx context.Context, inputPath string) (pdfFile string, err er
 }
 
 func convertDocumentFile(ctx context.Context, input string, convert func(context.Context, string, string) error) (pdfFile string, err error) {
+	return withPDFOutput(ctx, input, func(inputPath, outputPath string) error {
+		return convertAndValidate(ctx, inputPath, outputPath, convert)
+	})
+}
+
+func withPDFOutput(ctx context.Context, input string, writePDF func(string, string) error) (pdfFile string, err error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -65,18 +71,22 @@ func convertDocumentFile(ctx context.Context, input string, convert func(context
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	err = convert(ctx, inputPath, outputPath)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		err = errors.Join(err, ctxErr)
-	}
-	if err != nil {
-		return "", fmt.Errorf("convert document to PDF: %w", err)
-	}
-	if err := validateGeneratedPDF(outputPath); err != nil {
+	if err := writePDF(inputPath, outputPath); err != nil {
 		return "", err
 	}
 	keepOutput = true
 	return outputPath, nil
+}
+
+func convertAndValidate(ctx context.Context, inputPath, outputPath string, convert func(context.Context, string, string) error) error {
+	err := convert(ctx, inputPath, outputPath)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = errors.Join(err, ctxErr)
+	}
+	if err != nil {
+		return fmt.Errorf("convert document to PDF: %w", err)
+	}
+	return validateGeneratedPDF(outputPath)
 }
 
 func validateGeneratedPDF(path string) error {

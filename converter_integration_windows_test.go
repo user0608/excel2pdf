@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -27,8 +28,18 @@ func suspendBridge(t *testing.T, session *libreOfficeSession) {
 }
 
 func TestIntegrationPersistentMicrosoftOffice(t *testing.T) {
-	requireIntegrationExcel(t)
-	requireIntegrationWord(t)
+	t.Run("Word", func(t *testing.T) {
+		requireIntegrationWord(t)
+		testPersistentApplication(t, writeIntegrationWordDocument(t, "texto ñ.docx"), wordDocument)
+	})
+	t.Run("Excel", func(t *testing.T) {
+		requireIntegrationExcel(t)
+		testPersistentApplication(t, writeIntegrationWorkbook(t, "hoja ñ.xlsx"), spreadsheetDocument)
+	})
+}
+
+func testPersistentApplication(t *testing.T, input string, kind documentKind) {
+	t.Helper()
 	start, err := microsoftSessionFactory()
 	if err != nil {
 		t.Fatal(err)
@@ -48,16 +59,13 @@ func TestIntegrationPersistentMicrosoftOffice(t *testing.T) {
 		})
 		instances[i] = c
 	}
-	inputs := []string{writeIntegrationWorkbook(t, "hoja ñ.xlsx"), writeIntegrationWordDocument(t, "texto ñ.docx")}
 	convert := func(t *testing.T, c *Converter) {
 		t.Helper()
-		for _, input := range inputs {
-			pdf, err := c.ConvertToPDF(ctx, input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertIntegrationPDF(t, pdf)
+		pdf, err := c.ConvertToPDF(ctx, input)
+		if err != nil {
+			t.Fatal(err)
 		}
+		assertIntegrationPDF(t, pdf)
 	}
 	t.Run("independent instances", func(t *testing.T) {
 		for i, c := range instances {
@@ -67,9 +75,33 @@ func TestIntegrationPersistentMicrosoftOffice(t *testing.T) {
 			})
 		}
 	})
+	first := instances[0].session.(*microsoftSession)
+	app := first.apps[kind]
 	convert(t, instances[0])
+	if instances[0].session != first || app == nil || first.apps[kind] != app {
+		t.Fatal("successful conversion did not reuse the Office application")
+	}
+	// Deny Office its source after Go's input checks, so failure occurs in
+	// the real Documents.Open / Workbooks.Open rather than input validation.
+	instances[0].session = missingOfficeInput{first}
+	if pdf, err := instances[0].ConvertToPDF(ctx, input); pdf != "" || err == nil {
+		t.Fatalf("missing Office source = (%q, %v)", pdf, err)
+	}
+	if instances[0].session != nil {
+		t.Fatal("failed COM session retained")
+	}
+	convert(t, instances[0])
+	if instances[0].session == first {
+		t.Fatal("failed COM session reused")
+	}
 	if err := instances[0].Close(); err != nil {
 		t.Fatal(err)
 	}
 	convert(t, instances[1])
+}
+
+type missingOfficeInput struct{ conversionSession }
+
+func (s missingOfficeInput) convert(ctx context.Context, input, output string) error {
+	return s.conversionSession.convert(ctx, filepath.Join(filepath.Dir(input), "missing"+filepath.Ext(input)), output)
 }
